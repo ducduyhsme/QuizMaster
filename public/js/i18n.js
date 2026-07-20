@@ -134,6 +134,74 @@ const I18n = (() => {
       'common.error': 'Đã có lỗi xảy ra',
       'common.deleteQuizConfirm': 'Bạn có chắc muốn xóa quiz "{title}"? Hành động này không thể hoàn tác.',
       'common.copied': 'Đã sao chép mã quiz!',
+
+      // Vocab
+      'vocab.createTitle': 'Tạo bộ từ vựng',
+      'vocab.editTitle': 'Sửa bộ từ vựng',
+      'vocab.vocabLang': 'Ngôn ngữ Từ vựng',
+      'vocab.meaningLang': 'Ngôn ngữ cột Nghĩa',
+      'vocab.ipa': 'Phiên âm (IPA)',
+      'vocab.count': 'Số từ: {count}',
+      'vocab.textareaWord': 'Mỗi dòng 1 từ',
+      'vocab.textareaMeaning': 'Mỗi dòng 1 nghĩa',
+      'vocab.textareaIpa': 'Có thể để trống',
+      'vocab.addToList': 'Thêm vào danh sách',
+      'vocab.colNum': '#',
+      'vocab.colWord': 'Từ',
+      'vocab.colMeaning': 'Nghĩa',
+      'vocab.colIpa': 'Phiên âm',
+      'vocab.colAction': 'Thao tác',
+      'vocab.save': 'Lưu thành Quiz',
+
+      // MCQ
+      'mcq.listenAgain': 'Nghe lại',
+      'mcq.nextQuestion': 'Câu tiếp theo',
+
+      // Question type selector
+      'qtype.all': 'Tất cả',
+      'qtype.mcq_word_meaning': 'Trắc nghiệm',
+      'qtype.mcq_word_meaning_desc': 'Từ → chọn Nghĩa',
+      'qtype.mcq_meaning_word': 'Trắc nghiệm',
+      'qtype.mcq_meaning_word_desc': 'Nghĩa → chọn Từ',
+      'qtype.mcq_word_ipa': 'Trắc nghiệm',
+      'qtype.mcq_word_ipa_desc': 'Từ → chọn Phiên âm',
+      'qtype.mcq_meaning_ipa': 'Trắc nghiệm',
+      'qtype.mcq_meaning_ipa_desc': 'Nghĩa → chọn Phiên âm',
+      'qtype.mcq_listen_word': 'Trắc nghiệm',
+      'qtype.mcq_listen_word_desc': 'Nghe → chọn Từ',
+      'qtype.mcq_listen_meaning': 'Trắc nghiệm',
+      'qtype.mcq_listen_meaning_desc': 'Nghe → chọn Nghĩa',
+      'qtype.fill_word_meaning': 'Điền từ',
+      'qtype.fill_word_meaning_desc': 'Từ → điền Nghĩa',
+      'qtype.fill_meaning_word': 'Điền từ',
+      'qtype.fill_meaning_word_desc': 'Nghĩa → điền Từ',
+      'qtype.fill_ipa_word': 'Điền từ',
+      'qtype.fill_ipa_word_desc': 'Phiên âm → điền Từ',
+      'qtype.fill_ipa_meaning': 'Điền từ',
+      'qtype.fill_ipa_meaning_desc': 'Phiên âm → điền Nghĩa',
+      'qtype.fill_listen_word': 'Điền từ',
+      'qtype.fill_listen_word_desc': 'Nghe → điền Từ',
+      'qtype.fill_listen_meaning': 'Điền từ',
+      'qtype.fill_listen_meaning_desc': 'Nghe → điền Nghĩa',
+
+      // Settings auto-advance
+      'settings.autoAdvance': 'Thời gian tự chuyển câu',
+      'settings.autoAdvanceDesc': 'Thời gian chờ để tự động chuyển sang câu tiếp theo khi trả lời đúng trắc nghiệm',
+      'settings.custom': 'Tùy chỉnh',
+
+      // Dashboard
+      'dashboard.modeQuestion': 'Chế độ Câu hỏi',
+      'dashboard.modeVocab': 'Chế độ Từ vựng',
+      'dashboard.typeQuestion': '📝 Câu hỏi',
+      'dashboard.typeVocab': '🔤 Từ vựng',
+
+      // Export/Import
+      'export.downloadExcel': 'Xuất Excel',
+      'import.modeQuestion': 'Câu hỏi',
+      'import.modeVocab': 'Từ vựng',
+      'import.vocabFormatHint': 'File Excel cần có các cột "Từ vựng", "Nghĩa", và "Phiên âm" (tùy chọn)',
+      'import.downloadTemplateQuestion': 'Tải file Excel mẫu cho Câu hỏi',
+      'import.downloadTemplateVocab': 'Tải file Excel mẫu cho Từ vựng'
     },
 
     en: {
@@ -264,6 +332,74 @@ const I18n = (() => {
       'common.error': 'An error occurred',
       'common.deleteQuizConfirm': 'Are you sure you want to delete quiz "{title}"? This action cannot be undone.',
       'common.copied': 'Quiz code copied!',
+
+      // Vocab
+      'vocab.createTitle': 'Create Vocabulary',
+      'vocab.editTitle': 'Edit Vocabulary',
+      'vocab.vocabLang': 'Vocabulary Language',
+      'vocab.meaningLang': 'Meaning Language',
+      'vocab.ipa': 'Pronunciation (IPA)',
+      'vocab.count': 'Words: {count}',
+      'vocab.textareaWord': 'One word per line',
+      'vocab.textareaMeaning': 'One meaning per line',
+      'vocab.textareaIpa': 'Optional',
+      'vocab.addToList': 'Add to list',
+      'vocab.colNum': '#',
+      'vocab.colWord': 'Word',
+      'vocab.colMeaning': 'Meaning',
+      'vocab.colIpa': 'IPA',
+      'vocab.colAction': 'Actions',
+      'vocab.save': 'Save as Quiz',
+
+      // MCQ
+      'mcq.listenAgain': 'Listen again',
+      'mcq.nextQuestion': 'Next question',
+
+      // Question type selector
+      'qtype.all': 'All',
+      'qtype.mcq_word_meaning': 'MCQ',
+      'qtype.mcq_word_meaning_desc': 'Word → Meaning',
+      'qtype.mcq_meaning_word': 'MCQ',
+      'qtype.mcq_meaning_word_desc': 'Meaning → Word',
+      'qtype.mcq_word_ipa': 'MCQ',
+      'qtype.mcq_word_ipa_desc': 'Word → IPA',
+      'qtype.mcq_meaning_ipa': 'MCQ',
+      'qtype.mcq_meaning_ipa_desc': 'Meaning → IPA',
+      'qtype.mcq_listen_word': 'MCQ',
+      'qtype.mcq_listen_word_desc': 'Listen → Word',
+      'qtype.mcq_listen_meaning': 'MCQ',
+      'qtype.mcq_listen_meaning_desc': 'Listen → Meaning',
+      'qtype.fill_word_meaning': 'Fill',
+      'qtype.fill_word_meaning_desc': 'Word → Meaning',
+      'qtype.fill_meaning_word': 'Fill',
+      'qtype.fill_meaning_word_desc': 'Meaning → Word',
+      'qtype.fill_ipa_word': 'Fill',
+      'qtype.fill_ipa_word_desc': 'IPA → Word',
+      'qtype.fill_ipa_meaning': 'Fill',
+      'qtype.fill_ipa_meaning_desc': 'IPA → Meaning',
+      'qtype.fill_listen_word': 'Fill',
+      'qtype.fill_listen_word_desc': 'Listen → Word',
+      'qtype.fill_listen_meaning': 'Fill',
+      'qtype.fill_listen_meaning_desc': 'Listen → Meaning',
+
+      // Settings auto-advance
+      'settings.autoAdvance': 'Auto-advance Delay',
+      'settings.autoAdvanceDesc': 'Time to wait before automatically advancing to next question after correct MCQ answer',
+      'settings.custom': 'Custom',
+
+      // Dashboard
+      'dashboard.modeQuestion': 'Question Mode',
+      'dashboard.modeVocab': 'Vocabulary Mode',
+      'dashboard.typeQuestion': '📝 Question',
+      'dashboard.typeVocab': '🔤 Vocabulary',
+
+      // Export/Import
+      'export.downloadExcel': 'Export Excel',
+      'import.modeQuestion': 'Questions',
+      'import.modeVocab': 'Vocabulary',
+      'import.vocabFormatHint': 'Excel file must have "Word", "Meaning", and "IPA" (optional) columns',
+      'import.downloadTemplateQuestion': 'Download Excel Template for Questions',
+      'import.downloadTemplateVocab': 'Download Excel Template for Vocabulary'
     }
   };
 

@@ -47,6 +47,7 @@ const QuizEditor = (() => {
 
       <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
         <button class="btn btn-ghost btn-lg" onclick="App.navigate('dashboard')">${I18n.t('create.cancel')}</button>
+        ${isEdit ? `<a href="/api/export/${quizId}" class="btn btn-ghost btn-lg" download>📤 ${I18n.t('export.downloadExcel')}</a>` : ''}
         <button class="btn btn-primary btn-lg" onclick="QuizEditor.save()">💾 ${I18n.t('create.save')}</button>
       </div>
     `;

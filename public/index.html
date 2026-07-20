@@ -22,7 +22,7 @@
         <span class="btn-icon">▶</span>
         <span data-i18n="nav.play">Chơi Quiz</span>
       </button>
-      <button class="nav-btn success" id="btn-create" onclick="App.navigate('create')">
+      <button class="nav-btn success" id="btn-create" onclick="App.createNewQuiz()">
         <span class="btn-icon">＋</span>
         <span data-i18n="nav.create">Tạo Quiz</span>
       </button>
@@ -48,7 +48,7 @@
     <button class="mobile-nav-btn" onclick="App.navigate('play'); App.toggleMobileMenu();">
       <span>▶</span> <span data-i18n="nav.play">Chơi Quiz</span>
     </button>
-    <button class="mobile-nav-btn" onclick="App.navigate('create'); App.toggleMobileMenu();">
+    <button class="mobile-nav-btn" onclick="App.createNewQuiz(); App.toggleMobileMenu();">
       <span>＋</span> <span data-i18n="nav.create">Tạo Quiz</span>
     </button>
     <button class="mobile-nav-btn" onclick="App.navigate('import'); App.toggleMobileMenu();">
@@ -84,6 +84,7 @@
   <script src="/js/i18n.js"></script>
   <script src="/js/components.js"></script>
   <script src="/js/quiz-editor.js"></script>
+  <script src="/js/vocab-editor.js"></script>
   <script src="/js/quiz-import.js"></script>
   <script src="/js/quiz-player.js"></script>
   <script src="/js/app.js"></script>

@@ -37,10 +37,20 @@ const App = (() => {
         }
         break;
       case 'create':
-        QuizEditor.render();
+        if (currentDashboardMode === 'vocabulary') {
+          VocabEditor.render();
+        } else {
+          QuizEditor.render();
+        }
+        break;
+      case 'create-vocab':
+        VocabEditor.render();
         break;
       case 'edit':
         QuizEditor.render(parseInt(params[0]));
+        break;
+      case 'edit-vocab':
+        VocabEditor.render(parseInt(params[0]));
         break;
       case 'import':
         QuizImport.render();
@@ -57,7 +67,12 @@ const App = (() => {
   }
 
   function navigate(route, param = '') {
-    window.location.hash = param ? `${route}/${param}` : route;
+    const targetHash = param ? `${route}/${param}` : route;
+    if (window.location.hash === `#${targetHash}`) {
+      handleRoute();
+    } else {
+      window.location.hash = targetHash;
+    }
   }
 
   function updateActiveNav(route) {
@@ -65,7 +80,9 @@ const App = (() => {
       'dashboard': null,
       'play': 'btn-play',
       'create': 'btn-create',
+      'create-vocab': 'btn-create',
       'edit': 'btn-create',
+      'edit-vocab': 'btn-create',
       'import': 'btn-import',
       'settings': 'btn-settings',
     };
@@ -85,7 +102,8 @@ const App = (() => {
     }
   }
 
-  // Dashboard
+  let currentDashboardMode = localStorage.getItem('quizmaster-dashboard-mode') || 'question';
+
   async function renderDashboard() {
     const main = document.getElementById('main-content');
     main.innerHTML = `
@@ -93,13 +111,23 @@ const App = (() => {
         <h1>${I18n.t('dashboard.title')}</h1>
         <p>${I18n.t('dashboard.subtitle')}</p>
       </div>
+
+      <div class="mode-toggle">
+        <button class="mode-btn ${currentDashboardMode === 'question' ? 'active' : ''}" id="mode-question-btn" onclick="App.setDashboardMode('question')">
+          📝 <span data-i18n="dashboard.modeQuestion">Chế độ Câu hỏi</span>
+        </button>
+        <button class="mode-btn ${currentDashboardMode === 'vocabulary' ? 'active' : ''}" id="mode-vocab-btn" onclick="App.setDashboardMode('vocabulary')">
+          🔤 <span data-i18n="dashboard.modeVocab">Chế độ Từ vựng</span>
+        </button>
+      </div>
+
       <div class="card">
         <div class="card-header">
           <input type="text" class="form-input" id="search-quiz" 
                  placeholder="${I18n.t('dashboard.search')}" 
                  style="max-width: 300px;"
                  oninput="App.searchQuizzes(this.value)">
-          <button class="btn btn-success" onclick="App.navigate('create')">
+          <button class="btn btn-success" onclick="App.createNewQuiz()">
             ＋ ${I18n.t('nav.create')}
           </button>
         </div>
@@ -108,7 +136,24 @@ const App = (() => {
         </div>
       </div>
     `;
+    I18n.updateDOM();
     loadDashboardQuizzes();
+  }
+
+  function setDashboardMode(mode) {
+    currentDashboardMode = mode;
+    localStorage.setItem('quizmaster-dashboard-mode', mode);
+    document.getElementById('mode-question-btn')?.classList.toggle('active', mode === 'question');
+    document.getElementById('mode-vocab-btn')?.classList.toggle('active', mode === 'vocabulary');
+    searchQuizzes(document.getElementById('search-quiz')?.value || '');
+  }
+
+  function createNewQuiz() {
+    if (currentDashboardMode === 'vocabulary') {
+      navigate('create-vocab');
+    } else {
+      navigate('create');
+    }
   }
 
   let allQuizzes = [];
@@ -117,24 +162,25 @@ const App = (() => {
     try {
       const res = await fetch('/api/quizzes');
       allQuizzes = await res.json();
-      document.getElementById('quiz-list-container').innerHTML =
-        Components.renderQuizTable(allQuizzes);
+      searchQuizzes(document.getElementById('search-quiz')?.value || '');
     } catch (err) {
       document.getElementById('quiz-list-container').innerHTML =
         `<div class="text-center text-muted" style="padding: 40px;">${I18n.t('common.error')}</div>`;
     }
   }
 
-  function searchQuizzes(query) {
+  function searchQuizzes(query = '') {
     const q = query.toLowerCase().trim();
-    if (!q) {
-      document.getElementById('quiz-list-container').innerHTML =
-        Components.renderQuizTable(allQuizzes);
-      return;
-    }
-    const filtered = allQuizzes.filter(quiz =>
-      quiz.title.toLowerCase().includes(q) || quiz.code.includes(q)
+    let filtered = allQuizzes.filter(quiz => 
+      (quiz.quiz_type || 'question') === currentDashboardMode
     );
+
+    if (q) {
+      filtered = filtered.filter(quiz =>
+        quiz.title.toLowerCase().includes(q) || quiz.code.includes(q)
+      );
+    }
+    
     document.getElementById('quiz-list-container').innerHTML =
       Components.renderQuizTable(filtered);
   }
@@ -145,6 +191,15 @@ const App = (() => {
     const swapEnabled = localStorage.getItem('quizmaster-swap') === 'true';
     const duplicatesEnabled = localStorage.getItem('quizmaster-allow-duplicates') === 'true';
     const maxRetries = localStorage.getItem('quizmaster-max-retries') || '-1';
+    let rawAutoAdvance = localStorage.getItem('quizmaster-auto-advance') || '1500';
+    let autoAdvanceNum = parseFloat(rawAutoAdvance);
+    if (isNaN(autoAdvanceNum) || autoAdvanceNum <= 0) {
+      autoAdvanceNum = 1500;
+    }
+    const autoAdvance = autoAdvanceNum.toString();
+    const presetValues = ['500', '1000', '1500', '2000', '3000'];
+    const isCustomAuto = !presetValues.includes(autoAdvance);
+    const customSec = (autoAdvanceNum / 1000).toFixed(1);
     const currentLang = I18n.getLang();
 
     const main = document.getElementById('main-content');
@@ -199,14 +254,38 @@ const App = (() => {
 
         <div class="toggle-group">
           <div class="toggle-info">
-            <span class="toggle-label">${I18n.t('settings.swapQA')}</span>
-            <span class="toggle-desc">${I18n.t('settings.swapQADesc')}</span>
+            <span class="toggle-label" data-i18n="settings.swapQA">${I18n.t('settings.swapQA')}</span>
+            <span class="toggle-desc" data-i18n="settings.swapQADesc">${I18n.t('settings.swapQADesc')}</span>
           </div>
           <label class="toggle-switch">
             <input type="checkbox" id="toggle-swap" ${swapEnabled ? 'checked' : ''}
                    onchange="App.updateSetting('swap', this.checked)">
             <span class="toggle-slider"></span>
           </label>
+        </div>
+
+        <div class="toggle-group">
+          <div class="toggle-info">
+            <span class="toggle-label" data-i18n="settings.autoAdvance">${I18n.t('settings.autoAdvance')}</span>
+            <span class="toggle-desc" data-i18n="settings.autoAdvanceDesc">${I18n.t('settings.autoAdvanceDesc')}</span>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <select class="form-select" id="auto-advance-select" style="width: auto; min-width: 140px;"
+                    onchange="App.onAutoAdvanceSelectChange(this.value)">
+              <option value="500" ${autoAdvance === '500' ? 'selected' : ''}>0.5s</option>
+              <option value="1000" ${autoAdvance === '1000' ? 'selected' : ''}>1.0s</option>
+              <option value="1500" ${autoAdvance === '1500' ? 'selected' : ''}>1.5s</option>
+              <option value="2000" ${autoAdvance === '2000' ? 'selected' : ''}>2.0s</option>
+              <option value="3000" ${autoAdvance === '3000' ? 'selected' : ''}>3.0s</option>
+              <option value="custom" ${isCustomAuto ? 'selected' : ''}>${I18n.t('settings.custom')}</option>
+            </select>
+            <div id="auto-advance-custom-container" class="${isCustomAuto ? '' : 'hidden'}" style="display: flex; align-items: center; gap: 6px;">
+              <input type="number" id="auto-advance-custom-input" class="form-input" style="width: 90px; padding: 8px 12px;"
+                     min="0.1" max="10" step="0.1" value="${customSec}"
+                     oninput="App.onAutoAdvanceCustomInput(this.value)">
+              <span style="font-size: 14px; color: var(--text-secondary);">s</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -226,11 +305,33 @@ const App = (() => {
         </div>
       </div>
     `;
+    I18n.updateDOM();
   }
 
   function updateSetting(key, value) {
     localStorage.setItem(`quizmaster-${key}`, value);
     Components.showToast('✅ ' + I18n.t('create.saved'), 'success');
+  }
+
+  function onAutoAdvanceSelectChange(val) {
+    const customContainer = document.getElementById('auto-advance-custom-container');
+    if (val === 'custom') {
+      customContainer?.classList.remove('hidden');
+      const inputEl = document.getElementById('auto-advance-custom-input');
+      const numSec = parseFloat(inputEl?.value || '1.5');
+      const validSec = isNaN(numSec) || numSec <= 0 ? 1.5 : numSec;
+      updateSetting('auto-advance', Math.round(validSec * 1000).toString());
+    } else {
+      customContainer?.classList.add('hidden');
+      updateSetting('auto-advance', val);
+    }
+  }
+
+  function onAutoAdvanceCustomInput(val) {
+    const num = parseFloat(val);
+    if (!isNaN(num) && num > 0) {
+      updateSetting('auto-advance', Math.round(num * 1000).toString());
+    }
   }
 
   function changeLang(lang) {
@@ -344,8 +445,12 @@ const App = (() => {
     navigate('play', id);
   }
 
-  function editQuiz(id) {
-    navigate('edit', id);
+  function editQuiz(id, type = 'question') {
+    if (type === 'vocabulary') {
+      navigate('edit-vocab', id);
+    } else {
+      navigate('edit', id);
+    }
   }
 
   function deleteQuiz(id, title) {
@@ -395,15 +500,20 @@ const App = (() => {
   return {
     navigate,
     renderDashboard,
+    renderSettings,
     searchQuizzes,
     showCodeModal,
     submitCode,
     closeModal,
+    setDashboardMode,
+    createNewQuiz,
     playQuiz,
     editQuiz,
     deleteQuiz,
     copyCode,
     updateSetting,
+    onAutoAdvanceSelectChange,
+    onAutoAdvanceCustomInput,
     changeLang,
     toggleMobileMenu,
   };

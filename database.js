@@ -33,10 +33,22 @@ async function initDatabase() {
       code TEXT UNIQUE NOT NULL,
       title TEXT NOT NULL,
       description TEXT DEFAULT '',
+      quiz_type TEXT DEFAULT 'question',
+      vocab_lang TEXT DEFAULT NULL,
+      meaning_lang TEXT DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // Migrate existing quizzes table
+  try {
+    db.run("ALTER TABLE quizzes ADD COLUMN quiz_type TEXT DEFAULT 'question'");
+    db.run("ALTER TABLE quizzes ADD COLUMN vocab_lang TEXT DEFAULT NULL");
+    db.run("ALTER TABLE quizzes ADD COLUMN meaning_lang TEXT DEFAULT NULL");
+  } catch (e) {
+    // Ignore if columns already exist
+  }
 
   db.run(`
     CREATE TABLE IF NOT EXISTS questions (
@@ -47,10 +59,20 @@ async function initDatabase() {
       image_path TEXT DEFAULT NULL,
       audio_path TEXT DEFAULT NULL,
       order_index INTEGER DEFAULT 0,
+      ipa TEXT DEFAULT NULL,
+      question_type TEXT DEFAULT 'fill',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE
     )
   `);
+
+  // Migrate existing questions table
+  try {
+    db.run("ALTER TABLE questions ADD COLUMN ipa TEXT DEFAULT NULL");
+    db.run("ALTER TABLE questions ADD COLUMN question_type TEXT DEFAULT 'fill'");
+  } catch (e) {
+    // Ignore if columns already exist
+  }
 
   // Create indexes if not exist
   db.run('CREATE INDEX IF NOT EXISTS idx_quizzes_code ON quizzes(code)');
@@ -124,9 +146,9 @@ const quizzes = {
     return queryOne('SELECT * FROM quizzes WHERE code = ?', [code]);
   },
 
-  create(code, title, description) {
+  create(code, title, description, quizType = 'question', vocabLang = null, meaningLang = null) {
     // Run insert without saving yet so last_insert_rowid() is valid
-    db.run('INSERT INTO quizzes (code, title, description) VALUES (?, ?, ?)', [code, title, description]);
+    db.run('INSERT INTO quizzes (code, title, description, quiz_type, vocab_lang, meaning_lang) VALUES (?, ?, ?, ?, ?, ?)', [code, title, description, quizType, vocabLang, meaningLang]);
     const result = queryOne('SELECT last_insert_rowid() as id');
     const insertedId = result ? result.id : null;
     saveDatabase();
@@ -138,8 +160,8 @@ const quizzes = {
     return insertedId;
   },
 
-  update(id, title, description) {
-    runSql('UPDATE quizzes SET title = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [title, description, id]);
+  update(id, title, description, quizType = 'question', vocabLang = null, meaningLang = null) {
+    runSql('UPDATE quizzes SET title = ?, description = ?, quiz_type = ?, vocab_lang = ?, meaning_lang = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [title, description, quizType, vocabLang, meaningLang, id]);
   },
 
   delete(id) {
@@ -159,10 +181,10 @@ const questions = {
     return queryOne('SELECT * FROM questions WHERE id = ?', [id]);
   },
 
-  create(quizId, questionText, correctAnswer, imagePath, audioPath, orderIndex) {
+  create(quizId, questionText, correctAnswer, imagePath, audioPath, orderIndex, ipa = null, questionType = 'fill') {
     db.run(
-      'INSERT INTO questions (quiz_id, question_text, correct_answer, image_path, audio_path, order_index) VALUES (?, ?, ?, ?, ?, ?)',
-      [quizId, questionText, correctAnswer, imagePath, audioPath, orderIndex]
+      'INSERT INTO questions (quiz_id, question_text, correct_answer, image_path, audio_path, order_index, ipa, question_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [quizId, questionText, correctAnswer, imagePath, audioPath, orderIndex, ipa, questionType]
     );
     const result = queryOne('SELECT last_insert_rowid() as id');
     const insertedId = result ? result.id : null;
@@ -170,15 +192,19 @@ const questions = {
     return insertedId;
   },
 
-  update(id, questionText, correctAnswer, imagePath, audioPath) {
+  update(id, questionText, correctAnswer, imagePath, audioPath, ipa = null, questionType = 'fill') {
     runSql(
-      'UPDATE questions SET question_text = ?, correct_answer = ?, image_path = ?, audio_path = ? WHERE id = ?',
-      [questionText, correctAnswer, imagePath, audioPath, id]
+      'UPDATE questions SET question_text = ?, correct_answer = ?, image_path = ?, audio_path = ?, ipa = ?, question_type = ? WHERE id = ?',
+      [questionText, correctAnswer, imagePath, audioPath, ipa, questionType, id]
     );
   },
 
   delete(id) {
     runSql('DELETE FROM questions WHERE id = ?', [id]);
+  },
+
+  deleteByQuizId(quizId) {
+    runSql('DELETE FROM questions WHERE quiz_id = ?', [quizId]);
   },
 
   getMaxOrder(quizId) {
@@ -192,8 +218,8 @@ function bulkInsertQuestions(quizId, questionList) {
   let orderIndex = 0;
   for (const q of questionList) {
     db.run(
-      'INSERT INTO questions (quiz_id, question_text, correct_answer, image_path, audio_path, order_index) VALUES (?, ?, ?, ?, ?, ?)',
-      [quizId, q.question_text, q.correct_answer, q.image_path || null, q.audio_path || null, orderIndex++]
+      'INSERT INTO questions (quiz_id, question_text, correct_answer, image_path, audio_path, order_index, ipa, question_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [quizId, q.question_text, q.correct_answer, q.image_path || null, q.audio_path || null, orderIndex++, q.ipa || null, q.question_type || 'fill']
     );
   }
   saveDatabase();

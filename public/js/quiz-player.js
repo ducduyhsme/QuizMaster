@@ -11,6 +11,8 @@ const QuizPlayer = (() => {
   let answered = false;
   let settings = {};
   let usedAnswers = {};
+  let allVocabQuestions = [];
+  let selectedQuestionType = 'all';
 
   function renderSelectScreen() {
     const main = document.getElementById('main-content');
@@ -106,6 +108,18 @@ const QuizPlayer = (() => {
         questionsQueue = shuffleArray(questionsQueue);
       }
 
+      // For vocabulary quizzes, save the full list so we can filter by type
+      if (currentQuiz.quiz_type === 'vocabulary') {
+        allVocabQuestions = [...questionsQueue];
+        // Apply type filter if one was selected
+        if (selectedQuestionType !== 'all') {
+          questionsQueue = questionsQueue.filter(q => q.question_type === selectedQuestionType);
+        }
+      } else {
+        allVocabQuestions = [];
+        selectedQuestionType = 'all';
+      }
+
       currentIndex = 0;
       results = [];
       usedAnswers = {};
@@ -139,6 +153,29 @@ const QuizPlayer = (() => {
 
     const main = document.getElementById('main-content');
 
+    // Parse question text and options
+    let displayQuestionText = q.question_text;
+    let options = [];
+    const isMcq = q.question_type && q.question_type.startsWith('mcq_');
+    const isListen = q.question_type && (q.question_type.startsWith('fill_listen_') || q.question_type.startsWith('mcq_listen_'));
+
+    if (displayQuestionText.includes('|||')) {
+      const parts = displayQuestionText.split('|||');
+      displayQuestionText = parts[0];
+      try { options = JSON.parse(parts[1]); } catch(e) {}
+    }
+
+    if (displayQuestionText.startsWith('🎧 ')) {
+      displayQuestionText = displayQuestionText.substring(2).trim();
+    }
+
+    // Determine TTS language if it's vocab mode
+    let langToSpeak = 'en';
+    if (currentQuiz.quiz_type === 'vocabulary') {
+      const isMeaningPrompt = q.question_type === 'fill_meaning_word' || q.question_type === 'mcq_meaning_word' || q.question_type === 'mcq_meaning_ipa';
+      langToSpeak = isMeaningPrompt ? currentQuiz.meaning_lang : currentQuiz.vocab_lang;
+    }
+
     // Build media HTML
     let mediaHTML = '';
     if (q.image_path || q.audio_path) {
@@ -150,6 +187,64 @@ const QuizPlayer = (() => {
         mediaHTML += `<audio controls src="${q.audio_path}"></audio>`;
       }
       mediaHTML += '</div>';
+    }
+
+    let questionTextHTML = '';
+    const isMeaningOrIpaPrompt = q.question_type === 'fill_meaning_word' || 
+                                q.question_type === 'mcq_meaning_word' || 
+                                q.question_type === 'mcq_meaning_ipa' || 
+                                q.question_type === 'fill_ipa_word' || 
+                                q.question_type === 'fill_ipa_meaning';
+
+    if (isListen) {
+      questionTextHTML = `
+        <div style="text-align: center; margin-bottom: 24px;">
+          <button class="btn btn-primary btn-lg" onclick="QuizPlayer.playTTS('${Components.escapeHtml(displayQuestionText).replace(/'/g, "\\'")}', '${langToSpeak}')">
+            🔊 ${I18n.t('mcq.listenAgain')}
+          </button>
+        </div>
+      `;
+      // Auto-play TTS when question appears
+      setTimeout(() => playTTS(displayQuestionText, langToSpeak), 300);
+    } else {
+      // Only show TTS button for vocab mode when it's NOT a meaning or IPA prompt
+      let ttsBtn = '';
+      if (currentQuiz.quiz_type === 'vocabulary' && !isMeaningOrIpaPrompt) {
+        ttsBtn = `<button class="tts-btn" onclick="QuizPlayer.playTTS('${Components.escapeHtml(displayQuestionText).replace(/'/g, "\\'")}', '${langToSpeak}')">🔊</button>`;
+      }
+      questionTextHTML = `<div class="question-text">${Components.escapeHtml(displayQuestionText)} ${ttsBtn}</div>`;
+    }
+
+    // Build Answer HTML
+    let answerInputHTML = '';
+    if (isMcq) {
+      answerInputHTML = `
+        <div class="mcq-options" id="mcq-options-container">
+          ${options.map(opt => `
+            <button class="mcq-option" onclick="QuizPlayer.submitMcqAnswer(this, '${Components.escapeHtml(opt).replace(/'/g, "\\'")}')">
+              ${Components.escapeHtml(opt)}
+            </button>
+          `).join('')}
+        </div>
+      `;
+    } else {
+      answerInputHTML = `
+        <div class="answer-input-group">
+          <input type="text" class="answer-input" id="answer-input" 
+                 placeholder="${I18n.t('play.answerPlaceholder')}"
+                 autocomplete="off" spellcheck="false"
+                 onkeydown="if(event.key==='Enter') QuizPlayer.submitAnswer()">
+          <button class="answer-submit-btn" id="submit-btn" onclick="QuizPlayer.submitAnswer()">
+            ${I18n.t('play.submit')}
+          </button>
+        </div>
+      `;
+    }
+
+    // Build question type selector for vocabulary quizzes
+    let questionTypeSelectorHTML = '';
+    if (currentQuiz.quiz_type === 'vocabulary') {
+      questionTypeSelectorHTML = buildQuestionTypeSelector();
     }
 
     main.innerHTML = `
@@ -175,53 +270,163 @@ const QuizPlayer = (() => {
           <div class="question-number">
             ${I18n.t('play.questionOf', { current: currentIndex + 1, total })}
           </div>
-          <div class="question-text">${Components.escapeHtml(q.question_text)}</div>
+          ${questionTextHTML}
           ${mediaHTML}
-          <div class="answer-input-group">
-            <input type="text" class="answer-input" id="answer-input" 
-                   placeholder="${I18n.t('play.answerPlaceholder')}"
-                   autocomplete="off" spellcheck="false"
-                   onkeydown="if(event.key==='Enter') QuizPlayer.submitAnswer()">
-            <button class="answer-submit-btn" id="submit-btn" onclick="QuizPlayer.submitAnswer()">
-              ${I18n.t('play.submit')}
-            </button>
-          </div>
+          ${answerInputHTML}
           <div class="answer-feedback" id="answer-feedback"></div>
+          
+          <div class="auto-advance-bar-container" id="auto-advance-container">
+            <div class="auto-advance-bar" id="auto-advance-bar"></div>
+          </div>
         </div>
+
+        ${questionTypeSelectorHTML}
       </div>
     `;
 
-    // Focus input
-    setTimeout(() => {
-      document.getElementById('answer-input')?.focus();
-    }, 100);
+    // Focus input if fill-in-the-blank
+    if (!isMcq) {
+      setTimeout(() => {
+        document.getElementById('answer-input')?.focus();
+      }, 100);
+    }
   }
 
-  function submitAnswer() {
+  function playTTS(text, langCode) {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    if (langCode === 'en') utterance.lang = 'en-US';
+    else if (langCode === 'vi') utterance.lang = 'vi-VN';
+    else if (langCode === 'zh') utterance.lang = 'zh-CN';
+    else if (langCode === 'fr') utterance.lang = 'fr-FR';
+    else if (langCode === 'ko') utterance.lang = 'ko-KR';
+    else if (langCode === 'ru') utterance.lang = 'ru-RU';
+    else if (langCode === 'ja') utterance.lang = 'ja-JP';
+    window.speechSynthesis.speak(utterance);
+  }
+
+  // Build question type selector buttons for vocabulary quizzes
+  function buildQuestionTypeSelector() {
+    // Collect available types from allVocabQuestions
+    const typeCounts = {};
+    allVocabQuestions.forEach(q => {
+      const t = q.question_type || 'unknown';
+      typeCounts[t] = (typeCounts[t] || 0) + 1;
+    });
+
+    // Define the order and icons for question types
+    const typeDefinitions = [
+      { key: 'mcq_word_meaning', icon: '⚡', colorClass: 'qtype-mcq' },
+      { key: 'mcq_meaning_word', icon: '⚡', colorClass: 'qtype-mcq' },
+      { key: 'mcq_word_ipa', icon: '⚡', colorClass: 'qtype-mcq' },
+      { key: 'mcq_meaning_ipa', icon: '⚡', colorClass: 'qtype-mcq' },
+      { key: 'mcq_listen_word', icon: '⚡', colorClass: 'qtype-mcq' },
+      { key: 'mcq_listen_meaning', icon: '⚡', colorClass: 'qtype-mcq' },
+      { key: 'fill_word_meaning', icon: '✏️', colorClass: 'qtype-fill' },
+      { key: 'fill_meaning_word', icon: '✏️', colorClass: 'qtype-fill' },
+      { key: 'fill_ipa_word', icon: '✏️', colorClass: 'qtype-fill' },
+      { key: 'fill_ipa_meaning', icon: '✏️', colorClass: 'qtype-fill' },
+      { key: 'fill_listen_word', icon: '✏️', colorClass: 'qtype-fill' },
+      { key: 'fill_listen_meaning', icon: '✏️', colorClass: 'qtype-fill' },
+    ];
+
+    // Only show types that actually have questions
+    const availableTypes = typeDefinitions.filter(td => typeCounts[td.key] > 0);
+    if (availableTypes.length <= 1) return ''; // No point showing selector if only 1 type
+
+    const allCount = allVocabQuestions.length;
+    let buttons = `
+      <button class="qtype-chip ${selectedQuestionType === 'all' ? 'active qtype-all' : ''}" 
+              onclick="QuizPlayer.filterByQuestionType('all')">
+        <span class="qtype-chip-icon">📚</span>
+        <span class="qtype-chip-label">${I18n.t('qtype.all')}</span>
+        <span class="qtype-chip-count">${allCount}</span>
+      </button>
+    `;
+
+    availableTypes.forEach(td => {
+      const count = typeCounts[td.key];
+      const isActive = selectedQuestionType === td.key;
+      buttons += `
+        <button class="qtype-chip ${isActive ? 'active' : ''} ${td.colorClass}" 
+                onclick="QuizPlayer.filterByQuestionType('${td.key}')">
+          <span class="qtype-chip-icon">${td.icon}</span>
+          <span class="qtype-chip-label">${I18n.t('qtype.' + td.key)}</span>
+          <span class="qtype-chip-desc">${I18n.t('qtype.' + td.key + '_desc')}</span>
+          <span class="qtype-chip-count">${count}</span>
+        </button>
+      `;
+    });
+
+    return `
+      <div class="qtype-selector">
+        ${buttons}
+      </div>
+    `;
+  }
+
+  function filterByQuestionType(type) {
+    selectedQuestionType = type;
+    // Re-filter from allVocabQuestions
+    if (type === 'all') {
+      questionsQueue = [...allVocabQuestions];
+    } else {
+      questionsQueue = allVocabQuestions.filter(q => q.question_type === type);
+    }
+    // Shuffle if enabled
+    if (settings.shuffleQuestions) {
+      questionsQueue = shuffleArray(questionsQueue);
+    }
+    currentIndex = 0;
+    results = [];
+    usedAnswers = {};
+    renderQuestion();
+  }
+
+  function submitMcqAnswer(btnEl, userAnswer) {
+    if (answered) return;
+    // Visually mark the selected option immediately
+    document.querySelectorAll('.mcq-option').forEach(el => el.classList.remove('selected'));
+    btnEl.classList.add('selected');
+    // Delegate to submitAnswer logic
+    submitAnswer(userAnswer, btnEl);
+  }
+
+  function submitAnswer(overrideAnswer = null, btnEl = null) {
     if (answered) return;
 
-    const input = document.getElementById('answer-input');
-    const feedback = document.getElementById('answer-feedback');
-    const submitBtn = document.getElementById('submit-btn');
-    const userAnswer = input.value.trim();
+    let userAnswer = overrideAnswer;
+    let input = document.getElementById('answer-input');
+    
+    if (userAnswer === null) {
+      if (!input) return;
+      userAnswer = input.value.trim();
+    }
 
     if (!userAnswer) {
-      input.focus();
+      if (input) input.focus();
       return;
     }
 
     const q = questionsQueue[currentIndex];
+    const isMcq = q.question_type && q.question_type.startsWith('mcq_');
     const isCorrect = checkAnswer(userAnswer, q.correct_answer);
+    
+    const feedback = document.getElementById('answer-feedback');
+    let submitBtn = document.getElementById('submit-btn');
 
     const normalize = (str) => str.trim().toLowerCase().normalize('NFC').replace(/\s+/g, ' ');
 
     if (isCorrect) {
       const normalizedAnswer = normalize(userAnswer);
-      const isDuplicate = !settings.allowDuplicates && (usedAnswers[q.id] || []).some(a => normalize(a) === normalizedAnswer);
+      const isDuplicate = !isMcq && !settings.allowDuplicates && (usedAnswers[q.id] || []).some(a => normalize(a) === normalizedAnswer);
 
       if (isDuplicate) {
-        input.classList.remove('incorrect', 'correct');
-        input.style.borderColor = '#f59e0b';
+        if (input) {
+          input.classList.remove('incorrect', 'correct');
+          input.style.borderColor = '#f59e0b';
+        }
         feedback.className = 'answer-feedback show';
         feedback.style.color = '#f59e0b';
         feedback.textContent = I18n.t('play.alreadyAnswered');
@@ -233,16 +438,21 @@ const QuizPlayer = (() => {
 
       // Correct!
       answered = true;
-      input.style.borderColor = '';
-      input.classList.add('correct');
-      input.classList.remove('incorrect');
+      if (input) {
+        input.style.borderColor = '';
+        input.classList.add('correct');
+        input.classList.remove('incorrect');
+      }
+      
+      if (btnEl) {
+        btnEl.classList.add('correct');
+      }
+
       feedback.className = 'answer-feedback show correct';
       feedback.style.color = '';
       feedback.textContent = I18n.t('play.correct');
-      submitBtn.textContent = currentIndex < questionsQueue.length - 1
-        ? I18n.t('play.next') + ' →'
-        : I18n.t('play.finish') + ' 🎉';
-      submitBtn.onclick = () => {
+      
+      const proceedFunc = () => {
         results.push({
           question: q,
           userAnswer,
@@ -252,6 +462,31 @@ const QuizPlayer = (() => {
         currentIndex++;
         renderQuestion();
       };
+
+      if (submitBtn) {
+        submitBtn.textContent = currentIndex < questionsQueue.length - 1
+          ? I18n.t('play.next') + ' →'
+          : I18n.t('play.finish') + ' 🎉';
+        submitBtn.onclick = proceedFunc;
+      }
+
+      // Auto-advance logic
+      const autoDelay = parseInt(localStorage.getItem('quizmaster-auto-advance') || '1500', 10);
+      if (autoDelay > 0) {
+        // Disable other options if MCQ
+        document.querySelectorAll('.mcq-option').forEach(el => el.disabled = true);
+        const container = document.getElementById('auto-advance-container');
+        const bar = document.getElementById('auto-advance-bar');
+        if (container && bar) {
+          container.style.display = 'block';
+          // Use setTimeout to allow browser to render block first, then transition width
+          setTimeout(() => {
+            bar.style.transitionDuration = `${autoDelay}ms`;
+            bar.style.width = '100%';
+          }, 50);
+        }
+        setTimeout(proceedFunc, autoDelay);
+      }
     } else {
       // Incorrect
       const currentFailures = q._failedTries || 0;
@@ -272,9 +507,15 @@ const QuizPlayer = (() => {
 
       currentRetries = currentFailures + 1;
       document.getElementById('retry-count').textContent = currentRetries;
-      input.style.borderColor = '';
-      input.classList.add('incorrect');
-      input.classList.remove('correct');
+      if (input) {
+        input.style.borderColor = '';
+        input.classList.add('incorrect');
+        input.classList.remove('correct');
+      }
+
+      if (btnEl) {
+        btnEl.classList.add('incorrect');
+      }
 
       // Show correct answer
       feedback.style.color = '';
@@ -285,13 +526,20 @@ const QuizPlayer = (() => {
       feedback.className = 'answer-feedback show incorrect';
       feedback.innerHTML = I18n.t('play.incorrect', { answer: `<strong>${Components.escapeHtml(displayAnswer)}</strong>` });
 
+      // Highlight the correct button if it's MCQ
+      if (isMcq) {
+        document.querySelectorAll('.mcq-option').forEach(el => {
+          el.disabled = true;
+          if (checkAnswer(el.textContent.trim(), q.correct_answer)) {
+            el.classList.add('correct');
+          }
+        });
+      }
+
       // Allow next attempt after showing answer
       answered = true;
-      submitBtn.textContent = (currentIndex < questionsQueue.length - 1 || willRetry)
-        ? I18n.t('play.next') + ' →'
-        : I18n.t('play.finish') + ' 🎉';
       
-      submitBtn.onclick = () => {
+      const proceedFunc = () => {
         if (!willRetry) {
           results.push({
             question: q,
@@ -303,6 +551,23 @@ const QuizPlayer = (() => {
         currentIndex++;
         renderQuestion();
       };
+
+      if (submitBtn) {
+        submitBtn.textContent = (currentIndex < questionsQueue.length - 1 || willRetry)
+          ? I18n.t('play.next') + ' →'
+          : I18n.t('play.finish') + ' 🎉';
+        submitBtn.onclick = proceedFunc;
+      } else {
+        // If it's MCQ, auto-advance on incorrect too? Or wait for click?
+        // Let's add a "Next" button for MCQ since there's no input form.
+        feedback.innerHTML += `<br><button class="btn btn-danger mt-2" onclick="document.getElementById('hidden-next-btn').click()">${I18n.t('play.next')} →</button>`;
+        // create a hidden button to attach the proceedFunc
+        const hiddenBtn = document.createElement('button');
+        hiddenBtn.id = 'hidden-next-btn';
+        hiddenBtn.style.display = 'none';
+        hiddenBtn.onclick = proceedFunc;
+        feedback.appendChild(hiddenBtn);
+      }
     }
   }
 
@@ -438,20 +703,28 @@ const QuizPlayer = (() => {
 
     return filtered.map((r, i) => {
       const icon = r.isCorrect ? '✅' : '❌';
-      let answerDetail;
+      
+      // Clean up display question text (remove ||| options and 🎧 prefix)
+      let displayQText = r.question.question_text || '';
+      if (displayQText.includes('|||')) {
+        displayQText = displayQText.split('|||')[0];
+      }
+      if (displayQText.startsWith('🎧 ')) {
+        displayQText = displayQText.substring(2).trim();
+      }
 
+      const displayAnswer = r.question.correct_answer.includes('/')
+        ? r.question.correct_answer.split('/').join(' / ')
+        : r.question.correct_answer;
+
+      let answerDetail;
       if (r.isCorrect) {
-        if (r.retries === 0) {
-          answerDetail = `<span class="text-success">${I18n.t('results.firstTry')}</span>`;
-        } else {
-          answerDetail = `
-            <span>${I18n.t('results.yourAnswer')}: <strong>${Components.escapeHtml(r.userAnswer)}</strong></span>
-          `;
-        }
+        answerDetail = `
+          <span>${I18n.t('results.yourAnswer')}: <strong class="text-success">${Components.escapeHtml(r.userAnswer)}</strong></span>
+          <br>
+          <span>${I18n.t('results.correctAnswer')}: <span class="correct-answer-label">${Components.escapeHtml(displayAnswer)}</span></span>
+        `;
       } else {
-        const displayAnswer = r.question.correct_answer.includes('/')
-          ? r.question.correct_answer.split('/').join(' / ')
-          : r.question.correct_answer;
         answerDetail = `
           <span>${I18n.t('results.yourAnswer')}: <span class="user-answer-wrong">${Components.escapeHtml(r.userAnswer || I18n.t('results.noAnswer'))}</span></span>
           <br>
@@ -467,7 +740,7 @@ const QuizPlayer = (() => {
         <div class="result-item">
           <span class="result-icon">${icon}</span>
           <div class="result-content">
-            <div class="result-question">${Components.escapeHtml(r.question.question_text)}</div>
+            <div class="result-question">${Components.escapeHtml(displayQText)}</div>
             <div class="result-answer">${answerDetail}</div>
             ${retriesText}
           </div>
@@ -491,6 +764,9 @@ const QuizPlayer = (() => {
     renderSelectScreen,
     startQuiz,
     submitAnswer,
+    submitMcqAnswer,
+    playTTS,
     filterResults,
+    filterByQuestionType,
   };
 })();
