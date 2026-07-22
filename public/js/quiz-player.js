@@ -193,7 +193,7 @@ const QuizPlayer = (() => {
       }));
     }
     const fullList = [];
-    const dedupeTypes = new Set(['mcq_word_ipa', 'mcq_ipa_word', 'fill_ipa_word', 'fill_word_ipa']);
+    const dedupeTypes = new Set(['mcq_word_ipa', 'mcq_ipa_word', 'fill_ipa_word', 'fill_word_ipa', 'mcq_listen_word', 'fill_listen_word']);
     const seenDedupeKeys = new Set();
 
     raw.forEach(q => {
@@ -526,7 +526,12 @@ const QuizPlayer = (() => {
         ` : ''}
 
         <div class="question-card" id="question-card" style="position: relative;">
-          <div style="position: absolute; top: 16px; right: 16px; display: flex; gap: 4px; flex-wrap: wrap; max-width: 50%; justify-content: flex-end;">
+          <div style="position: absolute; top: 16px; right: 16px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 60%; justify-content: flex-end; align-items: center;">
+            ${(q._failedTries && q._failedTries > 0) ? `
+              <span class="retry-attempt-badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                🔄 ${I18n.t('play.retryAttempt', { count: q._failedTries })}
+              </span>
+            ` : ''}
             ${answeredChips.map(ans => 
               `<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">✓ ${Components.escapeHtml(ans)}</span>`
             ).join('')}

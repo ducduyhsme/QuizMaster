@@ -102,11 +102,68 @@ app.get('/api/quizzes', (req, res) => {
   }
 });
 
+function ensureVocabQuizUpToDate(quiz, qs) {
+  if (!quiz || quiz.quiz_type !== 'vocabulary' || !qs || qs.length === 0) {
+    return qs;
+  }
+
+  const hasIpa = qs.some(q => q.ipa && q.ipa.trim());
+  const hasIpaMcq = qs.some(q => q.question_type === 'mcq_ipa_word' || q.question_type === 'mcq_ipa_meaning');
+
+  if (hasIpa && !hasIpaMcq) {
+    const wordMap = new Map();
+    for (const q of qs) {
+      if (q.question_type === 'fill_word_meaning') {
+        const key = `${q.question_text}:${q.correct_answer}`;
+        if (!wordMap.has(key)) {
+          wordMap.set(key, { word: q.question_text, meaning: q.correct_answer, ipa: q.ipa || null });
+        } else if (q.ipa && !wordMap.get(key).ipa) {
+          wordMap.get(key).ipa = q.ipa;
+        }
+      }
+    }
+
+    if (wordMap.size === 0) {
+      for (const q of qs) {
+        if (q.question_type === 'fill_meaning_word') {
+          const key = `${q.correct_answer}:${q.question_text}`;
+          if (!wordMap.has(key)) {
+            wordMap.set(key, { word: q.correct_answer, meaning: q.question_text, ipa: q.ipa || null });
+          } else if (q.ipa && !wordMap.get(key).ipa) {
+            wordMap.get(key).ipa = q.ipa;
+          }
+        }
+      }
+    }
+
+    for (const q of qs) {
+      if (q.ipa && q.ipa.trim()) {
+        for (const [key, val] of wordMap.entries()) {
+          if (!val.ipa && (q.question_text === val.word || q.correct_answer === val.word)) {
+            val.ipa = q.ipa;
+          }
+        }
+      }
+    }
+
+    const words = Array.from(wordMap.values());
+    if (words.length >= 4) {
+      const generatedQuestions = generateQuestionsFromVocab(words);
+      questions.deleteByQuizId(quiz.id);
+      bulkInsertQuestions(quiz.id, generatedQuestions);
+      return questions.getByQuizId(quiz.id);
+    }
+  }
+
+  return qs;
+}
+
 app.get('/api/quizzes/:id', (req, res) => {
   try {
     const quiz = quizzes.getById(parseInt(req.params.id));
     if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
-    const qs = questions.getByQuizId(quiz.id);
+    let qs = questions.getByQuizId(quiz.id);
+    qs = ensureVocabQuizUpToDate(quiz, qs);
     res.json({ ...quiz, questions: qs });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -117,7 +174,8 @@ app.get('/api/quizzes/code/:code', (req, res) => {
   try {
     const quiz = quizzes.getByCode(req.params.code);
     if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
-    const qs = questions.getByQuizId(quiz.id);
+    let qs = questions.getByQuizId(quiz.id);
+    qs = ensureVocabQuizUpToDate(quiz, qs);
     res.json({ ...quiz, questions: qs });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -251,7 +309,7 @@ function generateQuestionsFromVocab(words) {
     }
   });
 
-  const dedupeTypes = new Set(['mcq_word_ipa', 'mcq_ipa_word', 'fill_ipa_word', 'fill_word_ipa']);
+  const dedupeTypes = new Set(['mcq_word_ipa', 'mcq_ipa_word', 'fill_ipa_word', 'fill_word_ipa', 'mcq_listen_word', 'fill_listen_word']);
   const seenDedupeKeys = new Set();
 
   const filteredGenerated = [];

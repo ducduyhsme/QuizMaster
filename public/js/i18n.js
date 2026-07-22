@@ -105,6 +105,7 @@ const I18n = (() => {
       'play.incorrect': '❌ Sai rồi! Đáp án đúng: {answer}',
       'play.finish': 'Hoàn thành!',
       'play.typeHintLabel': 'Yêu cầu',
+      'play.retryAttempt': 'Làm lại lần {count}',
 
       // Results
       'results.title': '📊 Kết quả Quiz',
@@ -323,6 +324,7 @@ const I18n = (() => {
       'play.incorrect': '❌ Wrong! Correct answer: {answer}',
       'play.finish': 'Finish!',
       'play.typeHintLabel': 'Requirement',
+      'play.retryAttempt': 'Retry #{count}',
 
       // Results
       'results.title': '📊 Quiz Results',
