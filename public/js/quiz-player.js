@@ -13,6 +13,54 @@ const QuizPlayer = (() => {
   let usedAnswers = {};
   let allVocabQuestions = [];
   let selectedQuestionType = 'all';
+  let currentPlayMode = localStorage.getItem('quizmaster-play-mode') || localStorage.getItem('quizmaster-dashboard-mode') || 'question';
+  let cachedPlayQuizzes = null;
+  let cachedTypeCounts = null;
+
+  const PROGRESS_KEY_PREFIX = 'quizmaster-progress-';
+  let saveProgressTimer = null;
+
+  function saveProgress() {
+    if (!currentQuiz || !currentQuiz.id) return;
+    if (saveProgressTimer) clearTimeout(saveProgressTimer);
+
+    saveProgressTimer = setTimeout(() => {
+      try {
+        const lightweightQueue = questionsQueue.map(q => ({
+          id: q.id,
+          _failedTries: q._failedTries,
+          question_type: q.question_type
+        }));
+        const progressData = {
+          quizId: currentQuiz.id,
+          currentIndex,
+          queue: lightweightQueue,
+          selectedQuestionType,
+          results,
+          usedAnswers,
+          updatedAt: Date.now()
+        };
+        localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id, JSON.stringify(progressData));
+      } catch (e) {
+        console.warn('Unable to save progress to localStorage', e);
+      }
+    }, 150);
+  }
+
+  function getSavedProgress(quizId) {
+    try {
+      const data = localStorage.getItem(PROGRESS_KEY_PREFIX + quizId);
+      return data ? JSON.parse(data) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function clearSavedProgress(quizId) {
+    if (!quizId) return;
+    if (saveProgressTimer) clearTimeout(saveProgressTimer);
+    localStorage.removeItem(PROGRESS_KEY_PREFIX + quizId);
+  }
 
   function renderSelectScreen() {
     const main = document.getElementById('main-content');
@@ -21,30 +69,69 @@ const QuizPlayer = (() => {
         <h1>${I18n.t('play.title')}</h1>
         <p>${I18n.t('play.subtitle')}</p>
       </div>
+
+      <div class="mode-toggle" style="margin-bottom: 24px;">
+        <button class="mode-btn ${currentPlayMode === 'question' ? 'active' : ''}" id="play-mode-question-btn" onclick="QuizPlayer.setPlayMode('question')">
+          📝 <span data-i18n="dashboard.modeQuestion">${I18n.t('dashboard.modeQuestion')}</span>
+        </button>
+        <button class="mode-btn ${currentPlayMode === 'vocabulary' ? 'active' : ''}" id="play-mode-vocab-btn" onclick="QuizPlayer.setPlayMode('vocabulary')">
+          🔤 <span data-i18n="dashboard.modeVocab">${I18n.t('dashboard.modeVocab')}</span>
+        </button>
+      </div>
+
       <div id="play-quiz-list" class="loading-overlay"><div class="spinner"></div></div>
     `;
     loadQuizList();
   }
 
-  async function loadQuizList() {
+  function setPlayMode(mode) {
+    currentPlayMode = mode;
+    localStorage.setItem('quizmaster-play-mode', mode);
+    document.getElementById('play-mode-question-btn')?.classList.toggle('active', mode === 'question');
+    document.getElementById('play-mode-vocab-btn')?.classList.toggle('active', mode === 'vocabulary');
+    renderFilteredPlayQuizList();
+  }
+
+  async function loadQuizList(forceFetch = false) {
     try {
-      const res = await fetch('/api/quizzes');
-      const quizzes = await res.json();
       const container = document.getElementById('play-quiz-list');
-      container.classList.remove('loading-overlay');
-
-      if (quizzes.length === 0) {
-        container.innerHTML = `
-          <div class="empty-state">
-            <span class="empty-icon">🎮</span>
-            <h3>${I18n.t('dashboard.empty')}</h3>
-            <p>${I18n.t('dashboard.emptyHint')}</p>
-          </div>
-        `;
-        return;
+      if (!cachedPlayQuizzes || forceFetch) {
+        const res = await fetch('/api/quizzes');
+        cachedPlayQuizzes = await res.json();
       }
+      if (container) container.classList.remove('loading-overlay');
+      renderFilteredPlayQuizList();
+    } catch (err) {
+      Components.showToast(I18n.t('common.error'), 'error');
+    }
+  }
 
-      container.innerHTML = quizzes.map(q => `
+  function renderFilteredPlayQuizList() {
+    const container = document.getElementById('play-quiz-list');
+    if (!container || !cachedPlayQuizzes) return;
+
+    const filtered = cachedPlayQuizzes.filter(q => (q.quiz_type || 'question') === currentPlayMode);
+
+    if (filtered.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <span class="empty-icon">🎮</span>
+          <h3>${I18n.t('dashboard.empty')}</h3>
+          <p>${I18n.t('dashboard.emptyHint')}</p>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = filtered.map(q => {
+      const saved = getSavedProgress(q.id);
+      const savedQueue = saved ? (saved.queue || saved.questionsQueue || []) : [];
+      const hasSaved = saved && savedQueue.length > 0 && (saved.currentIndex || 0) < savedQueue.length;
+      const savedBadge = hasSaved
+        ? `<span class="resume-badge" style="display: inline-block; margin-top: 4px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">💾 ${I18n.t('resume.badge', { current: Math.min((saved.currentIndex || 0) + 1, savedQueue.length), total: savedQueue.length })}</span>`
+        : '';
+
+      return `
         <div class="card" style="margin-bottom: 12px; cursor: pointer; display: flex; align-items: center; justify-content: space-between;"
              onclick="QuizPlayer.startQuiz(${q.id})">
           <div>
@@ -53,19 +140,158 @@ const QuizPlayer = (() => {
               ${q.question_count || 0} ${I18n.t('table.questions').toLowerCase()} · 
               <span class="code-badge" style="font-size: 12px;">${q.code}</span>
             </span>
+            ${savedBadge ? `<div>${savedBadge}</div>` : ''}
           </div>
           <button class="btn btn-primary" onclick="event.stopPropagation(); QuizPlayer.startQuiz(${q.id})">
-            ▶ ${I18n.t('play.start')}
+            ${hasSaved ? '▶ ' + I18n.t('resume.continue') : '▶ ' + I18n.t('play.start')}
           </button>
         </div>
-      `).join('');
+      `;
+    }).join('');
+  }
+
+  function showResumeModal(saved, quizId) {
+    const savedQueue = saved.queue || saved.questionsQueue || [];
+    const total = savedQueue.length;
+    const currentNum = Math.min((saved.currentIndex || 0) + 1, total);
+    const correctCount = (saved.results || []).filter(r => r.isCorrect).length;
+
+    const body = `
+      <div style="text-align: center; padding: 12px 0;">
+        <div style="font-size: 44px; margin-bottom: 12px;">💾</div>
+        <p style="font-size: 15px; color: var(--text-secondary); margin-bottom: 14px; line-height: 1.5;">
+          ${I18n.t('resume.message', { current: currentNum, total })}
+        </p>
+        <div style="display: inline-flex; gap: 12px; background: var(--bg-glass); padding: 8px 16px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); font-size: 13px; color: var(--text-muted);">
+          <span>${I18n.t('results.correct')}: <strong style="color: #10b981;">${correctCount}</strong></span>
+          <span>·</span>
+          <span>${I18n.t('results.total')}: <strong>${total}</strong></span>
+        </div>
+      </div>
+    `;
+
+    const footer = `
+      <button class="btn btn-ghost" onclick="QuizPlayer.startQuiz(${quizId}, true)">
+        🔄 ${I18n.t('resume.startNew')}
+      </button>
+      <button class="btn btn-primary" onclick="QuizPlayer.resumeQuiz(${quizId})">
+        ▶ ${I18n.t('resume.continue')}
+      </button>
+    `;
+
+    Components.showModal(I18n.t('resume.title'), body, footer);
+  }
+
+  function buildFullVocabQuestions(quiz, settingsObj) {
+    if (!quiz || !quiz.questions) return [];
+    let raw = [...quiz.questions];
+    if (settingsObj.swapQA) {
+      raw = raw.map(q => ({
+        ...q,
+        question_text: q.correct_answer.split('/').join(' / '),
+        correct_answer: q.question_text,
+      }));
+    }
+    const fullList = [];
+    const dedupeTypes = new Set(['mcq_word_ipa', 'mcq_ipa_word', 'fill_ipa_word', 'fill_word_ipa']);
+    const seenDedupeKeys = new Set();
+
+    raw.forEach(q => {
+      if (dedupeTypes.has(q.question_type)) {
+        const cleanPrompt = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim().toLowerCase();
+        const key = `${q.question_type}:${cleanPrompt}`;
+        if (seenDedupeKeys.has(key)) return;
+        seenDedupeKeys.add(key);
+      }
+
+      const isMcq = q.question_type && q.question_type.startsWith('mcq_');
+      if (isMcq) {
+        fullList.push({ ...q });
+      } else {
+        const ansCount = q.correct_answer.split('/').filter(a => a.trim()).length || 1;
+        for (let i = 0; i < ansCount; i++) {
+          fullList.push({ ...q });
+        }
+      }
+    });
+    return fullList;
+  }
+
+  async function resumeQuiz(quizId) {
+    try {
+      Components.closeModal();
+      const saved = getSavedProgress(quizId);
+      if (!saved) {
+        startQuiz(quizId, true);
+        return;
+      }
+
+      const res = await fetch(`/api/quizzes/${quizId}`);
+      if (!res.ok) throw new Error('Quiz not found');
+      currentQuiz = await res.json();
+
+      settings = {
+        shuffleQuestions: localStorage.getItem('quizmaster-shuffle') === 'true',
+        swapQA: localStorage.getItem('quizmaster-swap') === 'true',
+        allowDuplicates: localStorage.getItem('quizmaster-allow-duplicates') === 'true',
+        maxRetries: parseInt(localStorage.getItem('quizmaster-max-retries') || '-1', 10),
+      };
+
+      if (currentQuiz.quiz_type === 'vocabulary') {
+        allVocabQuestions = buildFullVocabQuestions(currentQuiz, settings);
+        cachedTypeCounts = null;
+      } else {
+        allVocabQuestions = [];
+        cachedTypeCounts = null;
+      }
+
+      let rawQuestions = [...currentQuiz.questions];
+      if (settings.swapQA) {
+        rawQuestions = rawQuestions.map(q => ({
+          ...q,
+          question_text: q.correct_answer.split('/').join(' / '),
+          correct_answer: q.question_text,
+        }));
+      }
+
+      const questionMap = new Map(rawQuestions.map(q => [q.id, q]));
+      const savedQueue = saved.queue || saved.questionsQueue || [];
+      questionsQueue = savedQueue.map(item => {
+        const fullQ = questionMap.get(item.id) || item;
+        return {
+          ...fullQ,
+          _failedTries: item._failedTries,
+          question_type: item.question_type || fullQ.question_type
+        };
+      });
+
+      currentIndex = saved.currentIndex || 0;
+      selectedQuestionType = saved.selectedQuestionType || 'all';
+      results = saved.results || [];
+      usedAnswers = saved.usedAnswers || {};
+
+      Components.showToast('✅ ' + I18n.t('resume.savedNotice'), 'success');
+      renderQuestion();
     } catch (err) {
-      Components.showToast(I18n.t('common.error'), 'error');
+      startQuiz(quizId, true);
     }
   }
 
-  async function startQuiz(quizId) {
+  async function startQuiz(quizId, forceNew = false) {
     try {
+      const saved = getSavedProgress(quizId);
+      const savedQueue = saved ? (saved.queue || saved.questionsQueue || []) : [];
+      if (saved && !forceNew && savedQueue.length > 0 && (saved.currentIndex || 0) < savedQueue.length) {
+        showResumeModal(saved, quizId);
+        return;
+      }
+
+      Components.closeModal();
+
+      if (forceNew) {
+        clearSavedProgress(quizId);
+      }
+
       const res = await fetch(`/api/quizzes/${quizId}`);
       if (!res.ok) throw new Error('Quiz not found');
       currentQuiz = await res.json();
@@ -97,9 +323,14 @@ const QuizPlayer = (() => {
 
       questionsQueue = [];
       rawQueue.forEach(q => {
-        const ansCount = q.correct_answer.split('/').filter(a => a.trim()).length || 1;
-        for (let i = 0; i < ansCount; i++) {
+        const isMcq = q.question_type && q.question_type.startsWith('mcq_');
+        if (isMcq) {
           questionsQueue.push({ ...q });
+        } else {
+          const ansCount = q.correct_answer.split('/').filter(a => a.trim()).length || 1;
+          for (let i = 0; i < ansCount; i++) {
+            questionsQueue.push({ ...q });
+          }
         }
       });
 
@@ -110,13 +341,19 @@ const QuizPlayer = (() => {
 
       // For vocabulary quizzes, save the full list so we can filter by type
       if (currentQuiz.quiz_type === 'vocabulary') {
-        allVocabQuestions = [...questionsQueue];
+        allVocabQuestions = buildFullVocabQuestions(currentQuiz, settings);
+        cachedTypeCounts = null;
+        questionsQueue = [...allVocabQuestions];
+        if (settings.shuffleQuestions) {
+          questionsQueue = shuffleArray(questionsQueue);
+        }
         // Apply type filter if one was selected
         if (selectedQuestionType !== 'all') {
           questionsQueue = questionsQueue.filter(q => q.question_type === selectedQuestionType);
         }
       } else {
         allVocabQuestions = [];
+        cachedTypeCounts = null;
         selectedQuestionType = 'all';
       }
 
@@ -139,11 +376,24 @@ const QuizPlayer = (() => {
     return shuffled;
   }
 
+  function getUsedAnswersKey(question) {
+    if (!question) return '';
+    if (!question.question_type) return question.id;
+    const cleanPrompt = (question.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim().toLowerCase();
+    let target = 'ans';
+    if (question.question_type.endsWith('_meaning')) target = 'meaning';
+    else if (question.question_type.endsWith('_word')) target = 'word';
+    else if (question.question_type.endsWith('_ipa')) target = 'ipa';
+    return `${cleanPrompt}_${target}`;
+  }
+
   function renderQuestion() {
     if (currentIndex >= questionsQueue.length) {
       renderResults();
       return;
     }
+
+    saveProgress();
 
     const q = questionsQueue[currentIndex];
     currentRetries = q._failedTries || 0;
@@ -158,6 +408,8 @@ const QuizPlayer = (() => {
     let options = [];
     const isMcq = q.question_type && q.question_type.startsWith('mcq_');
     const isListen = q.question_type && (q.question_type.startsWith('fill_listen_') || q.question_type.startsWith('mcq_listen_'));
+    const answerKey = getUsedAnswersKey(q);
+    const answeredChips = !isMcq ? (usedAnswers[answerKey] || []) : [];
 
     if (displayQuestionText.includes('|||')) {
       const parts = displayQuestionText.split('|||');
@@ -228,10 +480,14 @@ const QuizPlayer = (() => {
         </div>
       `;
     } else {
+      const placeholderText = (currentQuiz.quiz_type === 'vocabulary' && q.question_type)
+        ? I18n.t('qtype.' + q.question_type + '_desc')
+        : I18n.t('play.answerPlaceholder');
+
       answerInputHTML = `
         <div class="answer-input-group">
           <input type="text" class="answer-input" id="answer-input" 
-                 placeholder="${I18n.t('play.answerPlaceholder')}"
+                 placeholder="${placeholderText}"
                  autocomplete="off" spellcheck="false"
                  onkeydown="if(event.key==='Enter') QuizPlayer.submitAnswer()">
           <button class="answer-submit-btn" id="submit-btn" onclick="QuizPlayer.submitAnswer()">
@@ -261,14 +517,25 @@ const QuizPlayer = (() => {
           </div>
         </div>
 
+        ${currentQuiz.quiz_type === 'vocabulary' && q.question_type && !isMcq ? `
+          <div class="vocab-hint-banner">
+            <span class="vocab-hint-icon">🎯</span>
+            <span class="vocab-hint-label">${I18n.t('play.typeHintLabel')}:</span>
+            <span class="vocab-hint-text">${I18n.t('qtype.' + q.question_type + '_desc')}</span>
+          </div>
+        ` : ''}
+
         <div class="question-card" id="question-card" style="position: relative;">
           <div style="position: absolute; top: 16px; right: 16px; display: flex; gap: 4px; flex-wrap: wrap; max-width: 50%; justify-content: flex-end;">
-            ${(usedAnswers[q.id] || []).map(ans => 
-              `<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">${Components.escapeHtml(ans)}</span>`
+            ${answeredChips.map(ans => 
+              `<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">✓ ${Components.escapeHtml(ans)}</span>`
             ).join('')}
           </div>
-          <div class="question-number">
-            ${I18n.t('play.questionOf', { current: currentIndex + 1, total })}
+          <div class="question-number" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <span>${I18n.t('play.questionOf', { current: currentIndex + 1, total })}</span>
+            ${currentQuiz.quiz_type === 'vocabulary' && q.question_type && !isMcq ? `
+              <span class="vocab-qtype-badge">🎯 ${I18n.t('qtype.' + q.question_type + '_desc')}</span>
+            ` : ''}
           </div>
           ${questionTextHTML}
           ${mediaHTML}
@@ -306,14 +573,20 @@ const QuizPlayer = (() => {
     window.speechSynthesis.speak(utterance);
   }
 
+  function getTypeCounts() {
+    if (cachedTypeCounts) return cachedTypeCounts;
+    const counts = {};
+    for (let i = 0; i < allVocabQuestions.length; i++) {
+      const t = allVocabQuestions[i].question_type || 'unknown';
+      counts[t] = (counts[t] || 0) + 1;
+    }
+    cachedTypeCounts = counts;
+    return counts;
+  }
+
   // Build question type selector buttons for vocabulary quizzes
   function buildQuestionTypeSelector() {
-    // Collect available types from allVocabQuestions
-    const typeCounts = {};
-    allVocabQuestions.forEach(q => {
-      const t = q.question_type || 'unknown';
-      typeCounts[t] = (typeCounts[t] || 0) + 1;
-    });
+    const typeCounts = getTypeCounts();
 
     // Define the order and icons for question types
     const typeDefinitions = [
@@ -321,6 +594,8 @@ const QuizPlayer = (() => {
       { key: 'mcq_meaning_word', icon: '⚡', colorClass: 'qtype-mcq' },
       { key: 'mcq_word_ipa', icon: '⚡', colorClass: 'qtype-mcq' },
       { key: 'mcq_meaning_ipa', icon: '⚡', colorClass: 'qtype-mcq' },
+      { key: 'mcq_ipa_word', icon: '⚡', colorClass: 'qtype-mcq' },
+      { key: 'mcq_ipa_meaning', icon: '⚡', colorClass: 'qtype-mcq' },
       { key: 'mcq_listen_word', icon: '⚡', colorClass: 'qtype-mcq' },
       { key: 'mcq_listen_meaning', icon: '⚡', colorClass: 'qtype-mcq' },
       { key: 'fill_word_meaning', icon: '✏️', colorClass: 'qtype-fill' },
@@ -417,10 +692,11 @@ const QuizPlayer = (() => {
     let submitBtn = document.getElementById('submit-btn');
 
     const normalize = (str) => str.trim().toLowerCase().normalize('NFC').replace(/\s+/g, ' ');
+    const answerKey = getUsedAnswersKey(q);
 
     if (isCorrect) {
       const normalizedAnswer = normalize(userAnswer);
-      const isDuplicate = !isMcq && !settings.allowDuplicates && (usedAnswers[q.id] || []).some(a => normalize(a) === normalizedAnswer);
+      const isDuplicate = !isMcq && !settings.allowDuplicates && (usedAnswers[answerKey] || []).some(a => normalize(a) === normalizedAnswer);
 
       if (isDuplicate) {
         if (input) {
@@ -433,8 +709,8 @@ const QuizPlayer = (() => {
         return;
       }
 
-      if (!usedAnswers[q.id]) usedAnswers[q.id] = [];
-      usedAnswers[q.id].push(userAnswer);
+      if (!usedAnswers[answerKey]) usedAnswers[answerKey] = [];
+      usedAnswers[answerKey].push(userAnswer);
 
       // Correct!
       answered = true;
@@ -472,20 +748,24 @@ const QuizPlayer = (() => {
 
       // Auto-advance logic
       const autoDelay = parseInt(localStorage.getItem('quizmaster-auto-advance') || '1500', 10);
-      if (autoDelay > 0) {
-        // Disable other options if MCQ
+      if (autoDelay >= 0) {
         document.querySelectorAll('.mcq-option').forEach(el => el.disabled = true);
-        const container = document.getElementById('auto-advance-container');
-        const bar = document.getElementById('auto-advance-bar');
-        if (container && bar) {
-          container.style.display = 'block';
-          // Use setTimeout to allow browser to render block first, then transition width
-          setTimeout(() => {
-            bar.style.transitionDuration = `${autoDelay}ms`;
-            bar.style.width = '100%';
-          }, 50);
+        if (autoDelay === 0) {
+          requestAnimationFrame(() => {
+            proceedFunc();
+          });
+        } else {
+          const container = document.getElementById('auto-advance-container');
+          const bar = document.getElementById('auto-advance-bar');
+          if (container && bar) {
+            container.style.display = 'block';
+            setTimeout(() => {
+              bar.style.transitionDuration = `${autoDelay}ms`;
+              bar.style.width = '100%';
+            }, 50);
+          }
+          setTimeout(proceedFunc, autoDelay);
         }
-        setTimeout(proceedFunc, autoDelay);
       }
     } else {
       // Incorrect
@@ -585,6 +865,7 @@ const QuizPlayer = (() => {
   }
 
   function renderResults() {
+    clearSavedProgress(currentQuiz ? currentQuiz.id : null);
     const total = results.length;
     const correct = results.filter(r => r.isCorrect).length;
     const incorrect = total - correct;
@@ -762,7 +1043,11 @@ const QuizPlayer = (() => {
 
   return {
     renderSelectScreen,
+    setPlayMode,
     startQuiz,
+    resumeQuiz,
+    getSavedProgress,
+    clearSavedProgress,
     submitAnswer,
     submitMcqAnswer,
     playTTS,

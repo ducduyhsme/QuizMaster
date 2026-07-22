@@ -149,11 +149,32 @@ const App = (() => {
   }
 
   function createNewQuiz() {
-    if (currentDashboardMode === 'vocabulary') {
-      navigate('create-vocab');
-    } else {
-      navigate('create');
-    }
+    showCreateQuizModal();
+  }
+
+  function showCreateQuizModal() {
+    const body = `
+      <p style="text-align: center; color: var(--text-secondary); margin-bottom: 20px;" data-i18n="createModal.subtitle">
+        ${I18n.t('createModal.subtitle')}
+      </p>
+      <div class="create-mode-options">
+        <div class="create-mode-card" onclick="App.closeModal(); App.navigate('create');">
+          <div style="font-size: 36px; margin-bottom: 12px;">📝</div>
+          <h4 style="font-size: 16px; font-weight: 700; margin-bottom: 6px;" data-i18n="dashboard.modeQuestion">${I18n.t('dashboard.modeQuestion')}</h4>
+          <p style="font-size: 13px; color: var(--text-muted); line-height: 1.4;" data-i18n="createModal.questionDesc">${I18n.t('createModal.questionDesc')}</p>
+        </div>
+        <div class="create-mode-card" onclick="App.closeModal(); App.navigate('create-vocab');">
+          <div style="font-size: 36px; margin-bottom: 12px;">🔤</div>
+          <h4 style="font-size: 16px; font-weight: 700; margin-bottom: 6px;" data-i18n="dashboard.modeVocab">${I18n.t('dashboard.modeVocab')}</h4>
+          <p style="font-size: 13px; color: var(--text-muted); line-height: 1.4;" data-i18n="createModal.vocabDesc">${I18n.t('createModal.vocabDesc')}</p>
+        </div>
+      </div>
+    `;
+    const footer = `
+      <button class="btn btn-ghost" onclick="App.closeModal()">${I18n.t('common.cancel')}</button>
+    `;
+
+    Components.showModal(I18n.t('createModal.title'), body, footer);
   }
 
   let allQuizzes = [];
@@ -193,11 +214,11 @@ const App = (() => {
     const maxRetries = localStorage.getItem('quizmaster-max-retries') || '-1';
     let rawAutoAdvance = localStorage.getItem('quizmaster-auto-advance') || '1500';
     let autoAdvanceNum = parseFloat(rawAutoAdvance);
-    if (isNaN(autoAdvanceNum) || autoAdvanceNum <= 0) {
+    if (isNaN(autoAdvanceNum) || autoAdvanceNum < 0) {
       autoAdvanceNum = 1500;
     }
     const autoAdvance = autoAdvanceNum.toString();
-    const presetValues = ['500', '1000', '1500', '2000', '3000'];
+    const presetValues = ['0', '500', '1000', '1500', '2000', '3000'];
     const isCustomAuto = !presetValues.includes(autoAdvance);
     const customSec = (autoAdvanceNum / 1000).toFixed(1);
     const currentLang = I18n.getLang();
@@ -272,6 +293,7 @@ const App = (() => {
           <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <select class="form-select" id="auto-advance-select" style="width: auto; min-width: 140px;"
                     onchange="App.onAutoAdvanceSelectChange(this.value)">
+              <option value="0" ${autoAdvance === '0' ? 'selected' : ''}>${I18n.t('settings.instant')}</option>
               <option value="500" ${autoAdvance === '500' ? 'selected' : ''}>0.5s</option>
               <option value="1000" ${autoAdvance === '1000' ? 'selected' : ''}>1.0s</option>
               <option value="1500" ${autoAdvance === '1500' ? 'selected' : ''}>1.5s</option>
@@ -281,7 +303,7 @@ const App = (() => {
             </select>
             <div id="auto-advance-custom-container" class="${isCustomAuto ? '' : 'hidden'}" style="display: flex; align-items: center; gap: 6px;">
               <input type="number" id="auto-advance-custom-input" class="form-input" style="width: 90px; padding: 8px 12px;"
-                     min="0.1" max="10" step="0.1" value="${customSec}"
+                     min="0" max="10" step="0.1" value="${customSec}"
                      oninput="App.onAutoAdvanceCustomInput(this.value)">
               <span style="font-size: 14px; color: var(--text-secondary);">s</span>
             </div>
@@ -319,7 +341,7 @@ const App = (() => {
       customContainer?.classList.remove('hidden');
       const inputEl = document.getElementById('auto-advance-custom-input');
       const numSec = parseFloat(inputEl?.value || '1.5');
-      const validSec = isNaN(numSec) || numSec <= 0 ? 1.5 : numSec;
+      const validSec = isNaN(numSec) || numSec < 0 ? 1.5 : numSec;
       updateSetting('auto-advance', Math.round(validSec * 1000).toString());
     } else {
       customContainer?.classList.add('hidden');
@@ -329,7 +351,7 @@ const App = (() => {
 
   function onAutoAdvanceCustomInput(val) {
     const num = parseFloat(val);
-    if (!isNaN(num) && num > 0) {
+    if (!isNaN(num) && num >= 0) {
       updateSetting('auto-advance', Math.round(num * 1000).toString());
     }
   }
@@ -507,6 +529,7 @@ const App = (() => {
     closeModal,
     setDashboardMode,
     createNewQuiz,
+    showCreateQuizModal,
     playQuiz,
     editQuiz,
     deleteQuiz,

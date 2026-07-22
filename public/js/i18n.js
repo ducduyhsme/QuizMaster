@@ -104,6 +104,7 @@ const I18n = (() => {
       'play.correct': '✅ Chính xác!',
       'play.incorrect': '❌ Sai rồi! Đáp án đúng: {answer}',
       'play.finish': 'Hoàn thành!',
+      'play.typeHintLabel': 'Yêu cầu',
 
       // Results
       'results.title': '📊 Kết quả Quiz',
@@ -167,6 +168,10 @@ const I18n = (() => {
       'qtype.mcq_word_ipa_desc': 'Từ → chọn Phiên âm',
       'qtype.mcq_meaning_ipa': 'Trắc nghiệm',
       'qtype.mcq_meaning_ipa_desc': 'Nghĩa → chọn Phiên âm',
+      'qtype.mcq_ipa_word': 'Trắc nghiệm',
+      'qtype.mcq_ipa_word_desc': 'Phiên âm → chọn Từ',
+      'qtype.mcq_ipa_meaning': 'Trắc nghiệm',
+      'qtype.mcq_ipa_meaning_desc': 'Phiên âm → chọn Nghĩa',
       'qtype.mcq_listen_word': 'Trắc nghiệm',
       'qtype.mcq_listen_word_desc': 'Nghe → chọn Từ',
       'qtype.mcq_listen_meaning': 'Trắc nghiệm',
@@ -186,8 +191,9 @@ const I18n = (() => {
 
       // Settings auto-advance
       'settings.autoAdvance': 'Thời gian tự chuyển câu',
-      'settings.autoAdvanceDesc': 'Thời gian chờ để tự động chuyển sang câu tiếp theo khi trả lời đúng trắc nghiệm',
+      'settings.autoAdvanceDesc': 'Thời gian chờ để tự động chuyển sang câu tiếp theo khi trả lời đúng',
       'settings.custom': 'Tùy chỉnh',
+      'settings.instant': 'Ngay lập tức (0s)',
 
       // Dashboard
       'dashboard.modeQuestion': 'Chế độ Câu hỏi',
@@ -201,7 +207,21 @@ const I18n = (() => {
       'import.modeVocab': 'Từ vựng',
       'import.vocabFormatHint': 'File Excel cần có các cột "Từ vựng", "Nghĩa", và "Phiên âm" (tùy chọn)',
       'import.downloadTemplateQuestion': 'Tải file Excel mẫu cho Câu hỏi',
-      'import.downloadTemplateVocab': 'Tải file Excel mẫu cho Từ vựng'
+      'import.downloadTemplateVocab': 'Tải file Excel mẫu cho Từ vựng',
+
+      // Create Modal
+      'createModal.title': 'Chọn chế độ tạo Quiz',
+      'createModal.subtitle': 'Vui lòng chọn loại Quiz bạn muốn tạo',
+      'createModal.questionDesc': 'Tạo câu hỏi điền từ hoặc trắc nghiệm kèm hình ảnh và âm thanh',
+      'createModal.vocabDesc': 'Tạo bộ từ vựng với phiên âm IPA, nghĩa và phát âm tự động',
+
+      // Resume Progress
+      'resume.title': 'Khôi phục tiến trình chơi',
+      'resume.message': 'Bạn có tiến trình chơi dở ở câu {current} / {total}. Bạn có muốn tiếp tục không?',
+      'resume.continue': 'Tiếp tục chơi',
+      'resume.startNew': 'Chơi từ đầu',
+      'resume.savedNotice': 'Đã khôi phục tiến trình chơi!',
+      'resume.badge': 'Đang dở (câu {current}/{total})'
     },
 
     en: {
@@ -302,6 +322,7 @@ const I18n = (() => {
       'play.correct': '✅ Correct!',
       'play.incorrect': '❌ Wrong! Correct answer: {answer}',
       'play.finish': 'Finish!',
+      'play.typeHintLabel': 'Requirement',
 
       // Results
       'results.title': '📊 Quiz Results',
@@ -365,6 +386,10 @@ const I18n = (() => {
       'qtype.mcq_word_ipa_desc': 'Word → IPA',
       'qtype.mcq_meaning_ipa': 'MCQ',
       'qtype.mcq_meaning_ipa_desc': 'Meaning → IPA',
+      'qtype.mcq_ipa_word': 'MCQ',
+      'qtype.mcq_ipa_word_desc': 'IPA → Word',
+      'qtype.mcq_ipa_meaning': 'MCQ',
+      'qtype.mcq_ipa_meaning_desc': 'IPA → Meaning',
       'qtype.mcq_listen_word': 'MCQ',
       'qtype.mcq_listen_word_desc': 'Listen → Word',
       'qtype.mcq_listen_meaning': 'MCQ',
@@ -384,8 +409,9 @@ const I18n = (() => {
 
       // Settings auto-advance
       'settings.autoAdvance': 'Auto-advance Delay',
-      'settings.autoAdvanceDesc': 'Time to wait before automatically advancing to next question after correct MCQ answer',
+      'settings.autoAdvanceDesc': 'Time to wait before automatically advancing to next question after correct answer',
       'settings.custom': 'Custom',
+      'settings.instant': 'Instant (0s)',
 
       // Dashboard
       'dashboard.modeQuestion': 'Question Mode',
@@ -399,7 +425,21 @@ const I18n = (() => {
       'import.modeVocab': 'Vocabulary',
       'import.vocabFormatHint': 'Excel file must have "Word", "Meaning", and "IPA" (optional) columns',
       'import.downloadTemplateQuestion': 'Download Excel Template for Questions',
-      'import.downloadTemplateVocab': 'Download Excel Template for Vocabulary'
+      'import.downloadTemplateVocab': 'Download Excel Template for Vocabulary',
+
+      // Create Modal
+      'createModal.title': 'Select Quiz Creation Mode',
+      'createModal.subtitle': 'Please select the type of Quiz you want to create',
+      'createModal.questionDesc': 'Create fill-in-the-blank or MCQ questions with images & audio',
+      'createModal.vocabDesc': 'Create vocabulary lists with IPA, meanings & auto TTS',
+
+      // Resume Progress
+      'resume.title': 'Resume Saved Progress',
+      'resume.message': 'You have saved progress at question {current} / {total}. Would you like to resume?',
+      'resume.continue': 'Resume Quiz',
+      'resume.startNew': 'Start New',
+      'resume.savedNotice': 'Progress resumed!',
+      'resume.badge': 'Saved ({current}/{total})'
     }
   };
 

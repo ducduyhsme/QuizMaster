@@ -226,6 +226,9 @@ function generateQuestionsFromVocab(words) {
       const opts = [w.meaning, ...wrongMeanings].sort(() => 0.5 - Math.random());
       generated.push({ question_text: w.word + '|||' + JSON.stringify(opts), correct_answer: w.meaning, question_type: 'mcq_word_meaning', ipa: w.ipa });
       generated.push({ question_text: '🎧 ' + w.word + '|||' + JSON.stringify(opts), correct_answer: w.meaning, question_type: 'mcq_listen_meaning', ipa: w.ipa });
+      if (w.ipa) {
+        generated.push({ question_text: w.ipa + '|||' + JSON.stringify(opts), correct_answer: w.meaning, question_type: 'mcq_ipa_meaning', ipa: w.ipa });
+      }
     }
 
     const wrongWords = getWrong('word', w.word);
@@ -233,6 +236,9 @@ function generateQuestionsFromVocab(words) {
       const opts = [w.word, ...wrongWords].sort(() => 0.5 - Math.random());
       generated.push({ question_text: w.meaning + '|||' + JSON.stringify(opts), correct_answer: w.word, question_type: 'mcq_meaning_word', ipa: w.ipa });
       generated.push({ question_text: '🎧 ' + w.word + '|||' + JSON.stringify(opts), correct_answer: w.word, question_type: 'mcq_listen_word', ipa: w.ipa });
+      if (w.ipa) {
+        generated.push({ question_text: w.ipa + '|||' + JSON.stringify(opts), correct_answer: w.word, question_type: 'mcq_ipa_word', ipa: w.ipa });
+      }
     }
 
     if (w.ipa) {
@@ -245,7 +251,21 @@ function generateQuestionsFromVocab(words) {
     }
   });
 
-  return generated;
+  const dedupeTypes = new Set(['mcq_word_ipa', 'mcq_ipa_word', 'fill_ipa_word', 'fill_word_ipa']);
+  const seenDedupeKeys = new Set();
+
+  const filteredGenerated = [];
+  for (const q of generated) {
+    if (dedupeTypes.has(q.question_type)) {
+      const cleanPrompt = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim().toLowerCase();
+      const key = `${q.question_type}:${cleanPrompt}`;
+      if (seenDedupeKeys.has(key)) continue;
+      seenDedupeKeys.add(key);
+    }
+    filteredGenerated.push(q);
+  }
+
+  return filteredGenerated;
 }
 
 app.put('/api/quizzes/:id', (req, res) => {

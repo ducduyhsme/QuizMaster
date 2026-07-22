@@ -130,10 +130,9 @@ function generateUniqueCode() {
 const quizzes = {
   getAll() {
     return queryAll(`
-      SELECT q.*, COUNT(qu.id) as question_count 
+      SELECT q.*, 
+             (SELECT COUNT(*) FROM questions qu WHERE qu.quiz_id = q.id) as question_count 
       FROM quizzes q 
-      LEFT JOIN questions qu ON q.id = qu.quiz_id 
-      GROUP BY q.id 
       ORDER BY q.created_at DESC
     `);
   },
