@@ -31,18 +31,48 @@ const QuizPlayer = (() => {
           _failedTries: q._failedTries,
           question_type: q.question_type
         }));
+
+        const lightweightResults = results.map(r => ({
+          questionId: r.question?.id,
+          userAnswer: r.userAnswer,
+          isCorrect: r.isCorrect,
+          retries: r.retries
+        }));
+
         const progressData = {
           quizId: currentQuiz.id,
           currentIndex,
+          currentQuestionIndex: currentIndex,
+          questions: lightweightQueue,
           queue: lightweightQueue,
-          selectedQuestionType,
-          results,
+          selectedQuestionType: selectedQuestionType || 'all',
+          results: lightweightResults,
           usedAnswers,
           updatedAt: Date.now()
         };
+
         localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id, JSON.stringify(progressData));
+
+        // Determine effective qtype to group sessions in Phiên chơi
+        const currentQ = questionsQueue[currentIndex];
+        const effectiveQtype = (selectedQuestionType && selectedQuestionType !== 'all')
+          ? selectedQuestionType
+          : (currentQ && currentQ.question_type ? currentQ.question_type : 'all');
+
+        // Always save active session to server DB so it appears in Phiên chơi
+        fetch('/api/sessions/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            quizId: currentQuiz.id,
+            qtype: effectiveQtype,
+            sessionData: progressData
+          })
+        }).catch(e => {
+          console.warn('Unable to save session to server:', e);
+        });
       } catch (e) {
-        console.warn('Unable to save progress to localStorage', e);
+        console.warn('Unable to save progress', e);
       }
     }, 150);
   }
@@ -60,6 +90,13 @@ const QuizPlayer = (() => {
     if (!quizId) return;
     if (saveProgressTimer) clearTimeout(saveProgressTimer);
     localStorage.removeItem(PROGRESS_KEY_PREFIX + quizId);
+
+    const effectiveQtype = (selectedQuestionType && selectedQuestionType !== 'all') 
+      ? selectedQuestionType 
+      : 'all';
+
+    fetch(`/api/sessions/quiz/${quizId}/qtype/${effectiveQtype}`, { method: 'DELETE' }).catch(e => {});
+    fetch(`/api/sessions/quiz/${quizId}/qtype/all`, { method: 'DELETE' }).catch(e => {});
   }
 
   function renderSelectScreen() {
@@ -195,22 +232,28 @@ const QuizPlayer = (() => {
       const pinnedBadge = isPinned ? `<span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 700; margin-left: 6px;">📌 ${I18n.t('quiz.pinned')}</span>` : '';
 
       return `
-        <div class="card ${isPinned ? 'pinned-card' : ''}" style="margin-bottom: 12px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; ${pinnedStyle}"
+        <div class="card play-quiz-card ${isPinned ? 'pinned-card' : ''}" style="${pinnedStyle}"
              onclick="QuizPlayer.startQuiz(${q.id})">
-          <div>
-            <h3 style="font-size: 17px; font-weight: 700; margin-bottom: 4px;">
+          <div class="play-quiz-card-info">
+            <h3 class="play-quiz-card-title">
               ${Components.escapeHtml(q.title)} ${pinnedBadge}
             </h3>
-            <span class="text-muted" style="font-size: 13px;">
-              ${q.question_count || 0} ${I18n.t('table.questions').toLowerCase()} · 
-              <span class="code-badge" style="font-size: 12px;">${q.code}</span>
-            </span>
-            ${savedBadge ? `<div>${savedBadge}</div>` : ''}
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <button class="btn btn-ghost" onclick="event.stopPropagation(); App.editQuiz(${q.id}, '${q.quiz_type || 'question'}')" title="${I18n.t('common.edit')}" style="padding: 8px 12px; font-size: 14px;">
+            <div class="play-quiz-card-meta">
+              <span class="text-muted" style="font-size: 13px;">
+                ${q.question_count || 0} ${I18n.t('table.questions').toLowerCase()} · 
+                <span class="code-badge" style="font-size: 12px;">${q.code}</span>
+              </span>
+              ${savedBadge ? `<div style="margin-top: 4px;">${savedBadge}</div>` : ''}
+            </div>
+          </div>
+          <div class="play-quiz-card-actions" style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; align-items: center;">
+            <button class="btn btn-ghost edit-quiz-btn" onclick="event.stopPropagation(); App.editQuiz(${q.id}, '${q.quiz_type || 'question'}')" title="${I18n.t('common.edit')}">
               ✏️ ${I18n.t('common.edit')}
             </button>
-            <button class="btn btn-primary" onclick="event.stopPropagation(); QuizPlayer.startQuiz(${q.id})">
+            <a href="/api/export/${q.id}" class="btn btn-ghost export-quiz-btn" onclick="event.stopPropagation();" download title="Xuất file Excel" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+              📤 ${I18n.t('export.downloadExcel') || 'Xuất Excel'}
+            </a>
+            <button class="btn btn-primary start-quiz-btn" onclick="event.stopPropagation(); QuizPlayer.startQuiz(${q.id})">
               ${hasSaved ? '▶ ' + I18n.t('resume.continue') : '▶ ' + I18n.t('play.start')}
             </button>
           </div>
@@ -513,7 +556,7 @@ const QuizPlayer = (() => {
         mediaHTML += `<img src="${q.image_path}" alt="Question image" loading="lazy">`;
       }
       if (q.audio_path) {
-        mediaHTML += `<audio controls src="${q.audio_path}"></audio>`;
+        mediaHTML += `<audio controls src="${q.audio_path}" onplay="App.applyAudioVolume(this)"></audio>`;
       }
       mediaHTML += '</div>';
     }
@@ -616,7 +659,7 @@ const QuizPlayer = (() => {
         ` : ''}
 
         <div class="question-card" id="question-card" style="position: relative;">
-          <div style="position: absolute; top: 16px; right: 16px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 60%; justify-content: flex-end; align-items: center;">
+          <div class="question-card-header-chips" style="position: absolute; top: 16px; right: 16px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 60%; justify-content: flex-end; align-items: center;">
             ${(q._failedTries && q._failedTries > 0) ? `
               <span class="retry-attempt-badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
                 🔄 ${I18n.t('play.retryAttempt', { count: q._failedTries })}
@@ -654,18 +697,102 @@ const QuizPlayer = (() => {
     }
   }
 
-  function playTTS(text, langCode) {
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    if (langCode === 'en') utterance.lang = 'en-US';
-    else if (langCode === 'vi') utterance.lang = 'vi-VN';
-    else if (langCode === 'zh') utterance.lang = 'zh-CN';
-    else if (langCode === 'fr') utterance.lang = 'fr-FR';
-    else if (langCode === 'ko') utterance.lang = 'ko-KR';
-    else if (langCode === 'ru') utterance.lang = 'ru-RU';
-    else if (langCode === 'ja') utterance.lang = 'ja-JP';
-    window.speechSynthesis.speak(utterance);
+  let activeAudioFallback = null;
+  let audioContext = null;
+
+  function getAudioContext() {
+    if (!audioContext) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) audioContext = new AudioCtx();
+    }
+    if (audioContext && audioContext.state === 'suspended') {
+      audioContext.resume();
+    }
+    return audioContext;
+  }
+
+  function detectTextLanguage(text, fallbackLang = 'en') {
+    if (!text) return fallbackLang || 'en';
+    const str = String(text).trim();
+
+    if (/[\u4e00-\u9fa5\u3400-\u4dbf]/.test(str)) {
+      return 'zh';
+    }
+    if (/[\u3040-\u309f\u30a0-\u30ff]/.test(str)) {
+      return 'ja';
+    }
+    if (/[\uac00-\ud7af\u1100-\u11ff]/.test(str)) {
+      return 'ko';
+    }
+    if (/[\u0400-\u04ff]/.test(str)) {
+      return 'ru';
+    }
+
+    return fallbackLang || 'en';
+  }
+
+  function playTTS(text, langCode = 'en') {
+    if (!text) return;
+
+    const savedVolume = localStorage.getItem('quizmaster-volume');
+    const volumeSetting = savedVolume !== null ? parseFloat(savedVolume) : 0.5;
+    const finalVolumeSetting = isNaN(volumeSetting) ? 0.5 : Math.max(0, Math.min(2.0, volumeSetting));
+
+    if (finalVolumeSetting === 0) return;
+
+    const cleanText = text.replace(/<[^>]*>/g, '').trim();
+    if (!cleanText) return;
+
+    if ('speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch(e) {}
+    }
+
+    if (activeAudioFallback) {
+      try {
+        activeAudioFallback.pause();
+        activeAudioFallback.currentTime = 0;
+      } catch(e) {}
+      activeAudioFallback = null;
+    }
+
+    const effectiveLang = detectTextLanguage(cleanText, langCode);
+
+    fallbackServerAudio(cleanText, effectiveLang, finalVolumeSetting);
+  }
+
+  function fallbackServerAudio(text, langCode, volumeSetting) {
+    try {
+      const langPrefix = (langCode || 'en').toLowerCase().split('-')[0].split('_')[0];
+      const gLang = langPrefix === 'zh' ? 'zh-CN' : langPrefix;
+
+      const audioUrl = `/api/tts?text=${encodeURIComponent(text)}&lang=${gLang}`;
+      const audio = new Audio(audioUrl);
+      audio.crossOrigin = 'anonymous';
+
+      const gainMultiplier = volumeSetting;
+
+      try {
+        const ctx = getAudioContext();
+        if (ctx) {
+          const source = ctx.createMediaElementSource(audio);
+          const gainNode = ctx.createGain();
+          gainNode.gain.value = gainMultiplier;
+          source.connect(gainNode);
+          gainNode.connect(ctx.destination);
+        } else {
+          audio.volume = Math.min(1.0, gainMultiplier);
+        }
+      } catch (e) {
+        audio.volume = Math.min(1.0, gainMultiplier);
+      }
+
+      activeAudioFallback = audio;
+      audio.play().catch(e => console.warn('Server audio play error:', e));
+    } catch (e) {
+      console.warn('Fallback audio failed:', e);
+    }
   }
 
   function getTypeCounts() {
@@ -1245,3 +1372,5 @@ const QuizPlayer = (() => {
     handleDontRemember,
   };
 })();
+
+window.QuizPlayer = QuizPlayer;

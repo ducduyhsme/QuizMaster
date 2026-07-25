@@ -5,14 +5,22 @@
 const App = (() => {
   // Initialize
   function init() {
-    // Set language from storage
+    // Set language and theme from storage
     const savedLang = localStorage.getItem('quizmaster-lang') || 'vi';
     I18n.setLang(savedLang);
+
+    const savedTheme = localStorage.getItem('quizmaster-theme') || 'dark';
+    setTheme(savedTheme);
 
     // Brand click goes to dashboard
     document.querySelector('.navbar-brand').addEventListener('click', () => {
       navigate('dashboard');
     });
+
+    // Update nav user state
+    if (window.Auth) {
+      Auth.updateNavUser();
+    }
 
     // Handle hash routing
     window.addEventListener('hashchange', handleRoute);
@@ -21,9 +29,32 @@ const App = (() => {
     handleRoute();
   }
 
+  function setTheme(theme) {
+    localStorage.setItem('quizmaster-theme', theme);
+    document.documentElement.setAttribute('data-theme', theme);
+    document.body.setAttribute('data-theme', theme);
+  }
+
+  function changeTheme(theme) {
+    setTheme(theme);
+    renderSettings();
+    Components.showToast('✅ ' + I18n.t('create.saved'), 'success');
+  }
+
   function handleRoute() {
+    if (window.Components && typeof Components.closeModal === 'function') {
+      Components.closeModal();
+    }
+    document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+
     const hash = window.location.hash.slice(1) || 'dashboard';
     const [route, ...params] = hash.split('/');
+
+    if (!Auth.isLoggedIn()) {
+      Auth.renderLoginScreen(route === 'register' ? 'register' : 'login');
+      updateActiveNav(null);
+      return;
+    }
 
     switch (route) {
       case 'dashboard':
@@ -55,6 +86,14 @@ const App = (() => {
       case 'import':
         QuizImport.render();
         break;
+      case 'community':
+        if (typeof CommunityView !== 'undefined') CommunityView.render();
+        else if (window.CommunityView) window.CommunityView.render();
+        break;
+      case 'sessions':
+        if (typeof SessionsView !== 'undefined') SessionsView.render();
+        else if (window.SessionsView) window.SessionsView.render();
+        break;
       case 'settings':
         renderSettings();
         break;
@@ -84,6 +123,8 @@ const App = (() => {
       'edit': 'btn-create',
       'edit-vocab': 'btn-create',
       'import': 'btn-import',
+      'community': 'btn-community',
+      'sessions': 'btn-sessions',
       'settings': 'btn-settings',
     };
 
@@ -182,28 +223,41 @@ const App = (() => {
   async function loadDashboardQuizzes() {
     try {
       const res = await fetch('/api/quizzes');
-      allQuizzes = await res.json();
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Lỗi khi tải dữ liệu');
+      }
+      allQuizzes = Array.isArray(data) ? data : [];
       searchQuizzes(document.getElementById('search-quiz')?.value || '');
     } catch (err) {
-      document.getElementById('quiz-list-container').innerHTML =
-        `<div class="text-center text-muted" style="padding: 40px;">${I18n.t('common.error')}</div>`;
+      console.error('Error loading quizzes:', err);
+      allQuizzes = [];
+      const container = document.getElementById('quiz-list-container');
+      if (container) {
+        container.classList.remove('loading-overlay');
+        container.innerHTML = `<div class="text-center text-muted" style="padding: 40px; color: var(--color-danger, #ef4444);">${Components.escapeHtml(err.message || I18n.t('common.error'))}</div>`;
+      }
     }
   }
 
   function searchQuizzes(query = '') {
     const q = query.toLowerCase().trim();
-    let filtered = allQuizzes.filter(quiz => 
+    const quizList = Array.isArray(allQuizzes) ? allQuizzes : [];
+    let filtered = quizList.filter(quiz => 
       (quiz.quiz_type || 'question') === currentDashboardMode
     );
 
     if (q) {
       filtered = filtered.filter(quiz =>
-        quiz.title.toLowerCase().includes(q) || quiz.code.includes(q)
+        (quiz.title || '').toLowerCase().includes(q) || (quiz.code || '').includes(q)
       );
     }
     
-    document.getElementById('quiz-list-container').innerHTML =
-      Components.renderQuizTable(filtered);
+    const container = document.getElementById('quiz-list-container');
+    if (container) {
+      container.classList.remove('loading-overlay');
+      container.innerHTML = Components.renderQuizTable(filtered);
+    }
   }
 
   // Settings page
@@ -222,12 +276,54 @@ const App = (() => {
     const isCustomAuto = !presetValues.includes(autoAdvance);
     const customSec = (autoAdvanceNum / 1000).toFixed(1);
     const currentLang = I18n.getLang();
+    const currentTheme = localStorage.getItem('quizmaster-theme') || 'dark';
+    const rawVolume = localStorage.getItem('quizmaster-volume');
+    const currentVolume = rawVolume !== null ? parseFloat(rawVolume) : 0.5;
+    const validVolume = isNaN(currentVolume) ? 0.5 : Math.max(0, Math.min(2.0, currentVolume));
 
     const main = document.getElementById('main-content');
     main.innerHTML = `
       <div class="page-header">
         <h1>${I18n.t('settings.title')}</h1>
         <p>${I18n.t('settings.subtitle')}</p>
+      </div>
+
+      <div class="card" style="margin-bottom: 24px;">
+        <h3 class="settings-section-title">🎨 ${I18n.t('settings.appearance')}</h3>
+        
+        <div class="toggle-group">
+          <div class="toggle-info">
+            <span class="toggle-label">${I18n.t('settings.themeLabel')}</span>
+            <span class="toggle-desc">${I18n.t('settings.themeDesc')}</span>
+          </div>
+          <select class="form-select" id="theme-select" style="width: auto; min-width: 160px;"
+                  onchange="App.changeTheme(this.value)">
+            <option value="dark" ${currentTheme === 'dark' ? 'selected' : ''}>🌙 ${I18n.t('settings.themeDark')}</option>
+            <option value="light" ${currentTheme === 'light' ? 'selected' : ''}>☀️ ${I18n.t('settings.themeLight')}</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom: 24px;">
+        <h3 class="settings-section-title">🔊 ${I18n.t('settings.audio')}</h3>
+        
+        <div class="toggle-group">
+          <div class="toggle-info">
+            <span class="toggle-label">${I18n.t('settings.volumeLabel')}</span>
+            <span class="toggle-desc">${I18n.t('settings.volumeDesc')}</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <input type="range" id="volume-range" min="0" max="2" step="0.05" value="${validVolume}"
+                   style="width: 140px; cursor: pointer; accent-color: var(--text-accent);"
+                   oninput="App.onVolumeChange(this.value)">
+            <span id="volume-value-display" style="font-size: 14px; font-weight: 700; min-width: 45px; color: var(--text-accent);">
+              ${Math.round(validVolume * 100)}%
+            </span>
+            <button class="btn btn-sm btn-ghost" onclick="App.testVolume()" title="${I18n.t('settings.testVolume')}">
+              🔊 ${I18n.t('settings.testVolume')}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="card" style="margin-bottom: 24px;">
@@ -311,6 +407,24 @@ const App = (() => {
         </div>
       </div>
 
+      <div class="card" style="margin-bottom: 24px;">
+        <h3 class="settings-section-title">🔒 Đổi mật khẩu</h3>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+          Thay đổi mật khẩu đăng nhập cho tài khoản <b>${Components.escapeHtml(Auth.getUser() ? Auth.getUser().username : 'admin')}</b>
+        </p>
+        <form onsubmit="App.changePassword(event)" style="max-width: 400px;">
+          <div class="form-group" style="margin-bottom: 12px;">
+            <label class="form-label" style="font-size: 13px;">Mật khẩu hiện tại</label>
+            <input type="password" id="change-old-password" class="form-input" required placeholder="Mật khẩu hiện tại...">
+          </div>
+          <div class="form-group" style="margin-bottom: 16px;">
+            <label class="form-label" style="font-size: 13px;">Mật khẩu mới</label>
+            <input type="password" id="change-new-password" class="form-input" required placeholder="Mật khẩu mới (tối thiểu 3 ký tự)...">
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">💾 Lưu mật khẩu mới</button>
+        </form>
+      </div>
+
       <div class="card">
         <h3 class="settings-section-title">🌐 ${I18n.t('settings.language')}</h3>
         
@@ -356,11 +470,76 @@ const App = (() => {
     }
   }
 
+  async function changePassword(event) {
+    event.preventDefault();
+    const oldPassword = document.getElementById('change-old-password')?.value;
+    const newPassword = document.getElementById('change-new-password')?.value;
+    if (!oldPassword || !newPassword) return;
+
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldPassword, newPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Thất bại');
+      Components.showToast('✅ ' + data.message, 'success');
+      if (document.getElementById('change-old-password')) document.getElementById('change-old-password').value = '';
+      if (document.getElementById('change-new-password')) document.getElementById('change-new-password').value = '';
+    } catch (err) {
+      Components.showToast(err.message, 'error');
+    }
+  }
+
   function changeLang(lang) {
     I18n.setLang(lang);
-    // Re-render the settings page and update all nav text
     renderSettings();
     I18n.updateDOM();
+  }
+
+  function onVolumeChange(val) {
+    const num = parseFloat(val);
+    const valid = isNaN(num) ? 0.5 : Math.max(0, Math.min(2.0, num));
+    localStorage.setItem('quizmaster-volume', valid.toString());
+    const display = document.getElementById('volume-value-display');
+    if (display) display.textContent = Math.round(valid * 100) + '%';
+  }
+
+  function testVolume() {
+    const lang = I18n.getLang() === 'vi' ? 'vi' : 'en';
+    const text = lang === 'vi' ? 'Xin chào QuizMaster' : 'Hello QuizMaster';
+    if (typeof QuizPlayer !== 'undefined' && typeof QuizPlayer.playTTS === 'function') {
+      QuizPlayer.playTTS(text, lang);
+    }
+  }
+
+  function applyAudioVolume(audioElement) {
+    if (!audioElement) return;
+    const rawVolume = localStorage.getItem('quizmaster-volume');
+    const volumeSetting = rawVolume !== null ? parseFloat(rawVolume) : 0.5;
+    const validVolume = isNaN(volumeSetting) ? 0.5 : Math.max(0, Math.min(2.0, volumeSetting));
+    
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        const ctx = audioElement._audioCtx || new AudioCtx();
+        const gainNode = audioElement._gainNode || ctx.createGain();
+        gainNode.gain.value = validVolume;
+        if (!audioElement._gainConnected) {
+          const source = ctx.createMediaElementSource(audioElement);
+          source.connect(gainNode);
+          gainNode.connect(ctx.destination);
+          audioElement._audioCtx = ctx;
+          audioElement._gainNode = gainNode;
+          audioElement._gainConnected = true;
+        }
+      } else {
+        audioElement.volume = Math.min(1.0, validVolume);
+      }
+    } catch(e) {
+      audioElement.volume = Math.min(1.0, validVolume);
+    }
   }
 
   // Quiz Code Modal
@@ -538,6 +717,14 @@ const App = (() => {
     onAutoAdvanceSelectChange,
     onAutoAdvanceCustomInput,
     changeLang,
+    changeTheme,
+    setTheme,
+    changePassword,
+    onVolumeChange,
+    testVolume,
+    applyAudioVolume,
     toggleMobileMenu,
   };
 })();
+
+window.App = App;

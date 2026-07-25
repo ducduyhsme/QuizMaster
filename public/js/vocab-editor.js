@@ -69,6 +69,14 @@ const VocabEditor = (() => {
           <label class="form-label" data-i18n="create.description">Mô tả</label>
           <textarea id="vocab-description" class="form-textarea" data-i18n-placeholder="create.descriptionPlaceholder" placeholder="Nhập mô tả (tùy chọn)...">${existingQuiz ? Components.escapeHtml(existingQuiz.description) : ''}</textarea>
         </div>
+        <div class="form-group">
+          <label class="form-label">🔒 Quyền riêng tư</label>
+          <select id="vocab-visibility" class="form-select">
+            <option value="private" ${(existingQuiz && existingQuiz.visibility === 'private') || !existingQuiz ? 'selected' : ''}>🔒 Riêng tư (Private) — Ẩn mã code, chỉ mình bạn xem được</option>
+            <option value="unlisted" ${existingQuiz && existingQuiz.visibility === 'unlisted' ? 'selected' : ''}>🔗 Không công khai (Unlisted) — Có mã code chia sẻ, ẩn khỏi Cộng đồng</option>
+            <option value="public" ${existingQuiz && existingQuiz.visibility === 'public' ? 'selected' : ''}>🌐 Công khai (Public) — Hiển thị trên trang Cộng đồng chia sẻ</option>
+          </select>
+        </div>
       </div>
 
       <div class="card mb-6">
@@ -220,6 +228,17 @@ const VocabEditor = (() => {
   }
 
   function setupEventListeners() {
+    const bulkWordsInput = document.getElementById('bulk-words');
+    if (bulkWordsInput) {
+      bulkWordsInput.addEventListener('input', (e) => {
+        const val = e.target.value || '';
+        if (/[\u4e00-\u9fa5\u3400-\u4dbf]/.test(val)) {
+          const select = document.getElementById('vocab-lang');
+          if (select && select.value !== 'zh') select.value = 'zh';
+        }
+      });
+    }
+
     document.getElementById('add-bulk-btn').addEventListener('click', () => {
       const words = document.getElementById('bulk-words').value.split('\n');
       const meanings = document.getElementById('bulk-meanings').value.split('\n');
@@ -260,6 +279,7 @@ const VocabEditor = (() => {
         description: document.getElementById('vocab-description').value.trim(),
         vocab_lang: document.getElementById('vocab-lang').value,
         meaning_lang: document.getElementById('meaning-lang').value,
+        visibility: document.getElementById('vocab-visibility').value,
         words: vocabList.map(v => ({ word: v.word, meaning: v.meaning, ipa: v.ipa }))
       };
       
