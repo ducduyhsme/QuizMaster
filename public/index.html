@@ -13,11 +13,15 @@
 <body>
   <!-- Top Navigation Bar -->
   <nav class="navbar" id="navbar">
-    <div class="navbar-brand">
+    <div class="navbar-brand" onclick="App.navigate('dashboard')" style="cursor: pointer;">
       <span class="brand-icon">⚡</span>
       <span class="brand-text">QuizMaster</span>
     </div>
     <div class="navbar-actions">
+      <button class="nav-btn primary" id="btn-dashboard" onclick="App.navigate('dashboard')" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; border-color: rgba(99, 102, 241, 0.3);">
+        <span class="btn-icon">📚</span>
+        <span data-i18n="nav.dashboard">Danh sách Quiz</span>
+      </button>
       <button class="nav-btn primary" id="btn-play" onclick="App.navigate('play')">
         <span class="btn-icon">▶</span>
         <span data-i18n="nav.play">Chơi Quiz</span>
@@ -54,6 +58,9 @@
   <!-- Mobile Menu Overlay -->
   <div class="mobile-menu-overlay" id="mobile-menu-overlay" onclick="App.toggleMobileMenu()"></div>
   <div class="mobile-menu" id="mobile-menu">
+    <button class="mobile-nav-btn" onclick="App.navigate('dashboard'); App.toggleMobileMenu();">
+      <span>📚</span> <span data-i18n="nav.dashboard">Danh sách Quiz</span>
+    </button>
     <button class="mobile-nav-btn" onclick="App.navigate('play'); App.toggleMobileMenu();">
       <span>▶</span> <span data-i18n="nav.play">Chơi Quiz</span>
     </button>

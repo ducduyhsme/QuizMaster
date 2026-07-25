@@ -16,47 +16,53 @@ const QuizEditor = (() => {
     const isEdit = !!quizId;
 
     main.innerHTML = `
-      <div class="page-header">
-        <h1>${I18n.t(isEdit ? 'create.editTitle' : 'create.title')}</h1>
-      </div>
-      <div class="card" style="margin-bottom: 24px;">
-        <div class="form-group">
-          <label class="form-label">${I18n.t('create.quizTitle')}</label>
-          <input type="text" class="form-input" id="quiz-title" placeholder="${I18n.t('create.quizTitlePlaceholder')}">
+      <div style="padding-bottom: 80px;">
+        <div class="page-header">
+          <h1>${I18n.t(isEdit ? 'create.editTitle' : 'create.title')}</h1>
         </div>
-        <div class="form-group">
-          <label class="form-label">${I18n.t('create.description')}</label>
-          <textarea class="form-textarea" id="quiz-description" placeholder="${I18n.t('create.descriptionPlaceholder')}" rows="2"></textarea>
+        <div class="card" style="margin-bottom: 32px;">
+          <div class="form-group">
+            <label class="form-label">${I18n.t('create.quizTitle')}</label>
+            <input type="text" class="form-input" id="quiz-title" placeholder="${I18n.t('create.quizTitlePlaceholder')}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">${I18n.t('create.description')}</label>
+            <textarea class="form-textarea" id="quiz-description" placeholder="${I18n.t('create.descriptionPlaceholder')}" rows="2"></textarea>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">🔒 Quyền riêng tư</label>
+            <select id="quiz-visibility" class="form-select">
+              <option value="private" selected>🔒 Riêng tư (Private) — Ẩn mã code, chỉ mình bạn xem được</option>
+              <option value="unlisted">🔗 Không công khai (Unlisted) — Có mã code chia sẻ, ẩn khỏi Cộng đồng</option>
+              <option value="public">🌐 Công khai (Public) — Hiển thị trên trang Cộng đồng chia sẻ</option>
+            </select>
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">🔒 Quyền riêng tư</label>
-          <select id="quiz-visibility" class="form-select">
-            <option value="private" selected>🔒 Riêng tư (Private) — Ẩn mã code, chỉ mình bạn xem được</option>
-            <option value="unlisted">🔗 Không công khai (Unlisted) — Có mã code chia sẻ, ẩn khỏi Cộng đồng</option>
-            <option value="public">🌐 Công khai (Public) — Hiển thị trên trang Cộng đồng chia sẻ</option>
-          </select>
-        </div>
-      </div>
 
-      <div class="card">
-        <div class="card-header">
-          <h2 class="card-title">${I18n.t('create.questions')}</h2>
-          <button class="btn btn-success" onclick="QuizEditor.addQuestion()">
-            ＋ ${I18n.t('create.addQuestion')}
-          </button>
-        </div>
-        <div id="questions-container" class="editor-question-list">
-          <div class="empty-state" style="padding: 40px;">
-            <span class="empty-icon" style="font-size: 40px;">📝</span>
-            <p>${I18n.t('create.noQuestions')}</p>
+        <div class="card" style="margin-bottom: 32px;">
+          <div class="card-header">
+            <h2 class="card-title">${I18n.t('create.questions')}</h2>
+            <button class="btn btn-success" onclick="QuizEditor.addQuestion()">
+              ＋ ${I18n.t('create.addQuestion')}
+            </button>
+          </div>
+          <div id="questions-container" class="editor-question-list">
+            <div class="empty-state" style="padding: 40px;">
+              <span class="empty-icon" style="font-size: 40px;">📝</span>
+              <p>${I18n.t('create.noQuestions')}</p>
+            </div>
           </div>
         </div>
       </div>
 
-      <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
-        <button class="btn btn-ghost btn-lg" onclick="App.navigate('dashboard')">${I18n.t('create.cancel')}</button>
-        ${isEdit ? `<a href="/api/export/${quizId}" class="btn btn-ghost btn-lg" download>📤 ${I18n.t('export.downloadExcel')}</a>` : ''}
-        <button class="btn btn-primary btn-lg" onclick="QuizEditor.save()">💾 ${I18n.t('create.save')}</button>
+      <div class="fixed-bottom-bar">
+        <div class="fixed-bottom-bar-inner">
+          <button class="btn btn-ghost btn-lg" onclick="App.navigate('dashboard')">${I18n.t('create.cancel')}</button>
+          <div style="display: flex; gap: 12px; align-items: center;">
+            ${isEdit ? `<a href="/api/export/${quizId}" class="btn btn-ghost btn-lg" download style="display: inline-flex; align-items: center; gap: 6px;">📤 ${I18n.t('export.downloadExcel')}</a>` : ''}
+            <button class="btn btn-primary btn-lg" onclick="QuizEditor.save()" style="padding: 12px 28px; font-weight: 700; border-radius: 12px; cursor: pointer;">💾 ${I18n.t('create.save')}</button>
+          </div>
+        </div>
       </div>
     `;
 

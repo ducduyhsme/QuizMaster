@@ -1,5 +1,6 @@
 const SessionsView = (() => {
   const containerId = 'main-content';
+  const sessionDataStore = new Map();
 
   const QTYPE_NAMES = {
     fill_word_meaning: 'Từ ➔ Nghĩa (Điền từ)',
@@ -26,9 +27,27 @@ const SessionsView = (() => {
     return QTYPE_NAMES[qtype] || qtype;
   }
 
+  function getCollapsedSet() {
+    try {
+      const stored = localStorage.getItem('quizmaster-collapsed-sessions');
+      return new Set(stored ? JSON.parse(stored) : []);
+    } catch (e) {
+      return new Set();
+    }
+  }
+
+  function saveCollapsedSet(setObj) {
+    try {
+      localStorage.setItem('quizmaster-collapsed-sessions', JSON.stringify(Array.from(setObj)));
+    } catch (e) {}
+  }
+
   async function render() {
     const container = document.getElementById(containerId);
     if (!container) return;
+
+    sessionDataStore.clear();
+    const collapsedSet = getCollapsedSet();
 
     container.innerHTML = `
       <div class="page-header">
@@ -68,8 +87,16 @@ const SessionsView = (() => {
       let groupsHTML = groups.map(g => {
         const quizTitle = Components.escapeHtml(g.quiz_title);
         const quizId = g.quiz_id;
+        const isVocab = g.quiz_type === 'vocabulary';
+        const isCollapsed = collapsedSet.has(quizId);
+
+        const modeBadgeHTML = isVocab
+          ? `<span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.3); padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; margin-left: 8px;">${I18n.t('sessions.modeVocab')}</span>`
+          : `<span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; margin-left: 8px;">${I18n.t('sessions.modeQuestion')}</span>`;
 
         const sessionItemsHTML = g.sessions.map(s => {
+          sessionDataStore.set(`${quizId}_${s.qtype}`, s.session_data);
+
           const qtypeName = getQtypeName(s.qtype);
           const current = s.current_index + 1;
           const total = s.total_questions || 1;
@@ -108,19 +135,29 @@ const SessionsView = (() => {
 
         return `
           <div class="session-folder-card card" style="margin-bottom: 24px; padding: 20px;">
-            <div class="session-folder-header" style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color);">
-              <span style="font-size: 28px;">📁</span>
-              <div style="flex: 1;">
-                <h3 style="font-size: 18px; font-weight: 800; color: var(--text-primary); margin: 0;">
-                  ${quizTitle}
-                </h3>
-                <span style="font-size: 13px; color: var(--text-secondary);">
-                  ${I18n.t('sessions.totalInQuiz', { count: g.sessions.length })}
-                </span>
+            <div class="session-folder-header" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border-color); cursor: pointer;" onclick="SessionsView.toggleCollapse(${quizId})">
+              <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
+                <span style="font-size: 28px;">📁</span>
+                <div>
+                  <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 4px;">
+                    <h3 style="font-size: 18px; font-weight: 800; color: var(--text-primary); margin: 0; display: inline-block;">
+                      ${quizTitle}
+                    </h3>
+                    ${modeBadgeHTML}
+                  </div>
+                  <div style="font-size: 13px; color: var(--text-secondary); margin-top: 2px;">
+                    ${I18n.t('sessions.totalInQuiz', { count: g.sessions.length })}
+                  </div>
+                </div>
               </div>
+
+              <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); SessionsView.toggleCollapse(${quizId})" style="display: flex; align-items: center; gap: 6px; font-weight: 600; padding: 6px 14px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color);">
+                <span id="collapse-icon-${quizId}">${isCollapsed ? '►' : '▼'}</span>
+                <span id="collapse-text-${quizId}">${isCollapsed ? I18n.t('sessions.expand') : I18n.t('sessions.collapse')}</span>
+              </button>
             </div>
 
-            <div class="session-files-list">
+            <div class="session-files-list" id="session-list-${quizId}" style="margin-top: 16px; ${isCollapsed ? 'display: none;' : ''}">
               ${sessionItemsHTML}
             </div>
           </div>
@@ -150,13 +187,39 @@ const SessionsView = (() => {
     }
   }
 
+  function toggleCollapse(quizId) {
+    const listEl = document.getElementById(`session-list-${quizId}`);
+    const iconEl = document.getElementById(`collapse-icon-${quizId}`);
+    const textEl = document.getElementById(`collapse-text-${quizId}`);
+    if (!listEl) return;
+
+    const collapsedSet = getCollapsedSet();
+    const isCurrentlyCollapsed = listEl.style.display === 'none';
+
+    if (isCurrentlyCollapsed) {
+      listEl.style.display = 'block';
+      if (iconEl) iconEl.textContent = '▼';
+      if (textEl) textEl.textContent = I18n.t('sessions.collapse');
+      collapsedSet.delete(quizId);
+    } else {
+      listEl.style.display = 'none';
+      if (iconEl) iconEl.textContent = '►';
+      if (textEl) textEl.textContent = I18n.t('sessions.expand');
+      collapsedSet.add(quizId);
+    }
+
+    saveCollapsedSet(collapsedSet);
+  }
+
   async function resumeSession(quizId, qtype) {
     try {
-      // Use App.navigate to go to play route, which triggers startQuiz and shows resume modal
-      if (window.App && typeof App.navigate === 'function') {
-        App.navigate('play', quizId);
+      const sessionData = sessionDataStore.get(`${quizId}_${qtype}`);
+      if (window.QuizPlayer && typeof QuizPlayer.resumeQuiz === 'function') {
+        QuizPlayer.resumeQuiz(quizId, qtype, sessionData);
       } else if (window.QuizPlayer && typeof QuizPlayer.startQuiz === 'function') {
-        QuizPlayer.startQuiz(quizId);
+        QuizPlayer.startQuiz(quizId, false, true);
+      } else if (window.App && typeof App.navigate === 'function') {
+        App.navigate('play', quizId);
       } else {
         Components.showToast(I18n.t('common.error'), 'error');
       }
@@ -179,6 +242,7 @@ const SessionsView = (() => {
 
   return {
     render,
+    toggleCollapse,
     resumeSession,
     deleteSession
   };

@@ -132,12 +132,19 @@ const QuizImport = (() => {
 
     try {
       const res = await fetch('/api/import/preview', { method: 'POST', body: formData });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Preview failed');
+      let data;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(`Máy chủ không phản hồi JSON (Mã lỗi ${res.status})`);
       }
 
-      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Đọc file Excel thất bại');
+      }
+
       previewData = data;
 
       // Set quiz name from filename

@@ -79,9 +79,10 @@ const Components = (() => {
       actions += `<a href="/api/export/${q.id}" class="btn btn-sm btn-ghost" title="${I18n.t('export.downloadExcel')}" download>📤</a>`;
       if (showDelete && !isPinned) actions += `<button class="btn btn-sm btn-danger" onclick="App.deleteQuiz(${q.id}, '${q.title.replace(/'/g, "\\'")}')" title="${I18n.t('common.delete')}">🗑</button>`;
 
-      const typeBadge = q.quiz_type === 'vocabulary' 
+      const showTypeBadge = options.showTypeBadge || false;
+      const typeBadge = showTypeBadge ? (q.quiz_type === 'vocabulary' 
         ? `<span class="quiz-type-badge">${I18n.t('dashboard.typeVocab')}</span>` 
-        : `<span class="quiz-type-badge">${I18n.t('dashboard.typeQuestion')}</span>`;
+        : `<span class="quiz-type-badge">${I18n.t('dashboard.typeQuestion')}</span>`) : '';
 
       const visibility = q.visibility || 'private';
       let visibilityBadge = '';

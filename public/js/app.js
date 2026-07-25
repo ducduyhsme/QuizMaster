@@ -71,11 +71,8 @@ const App = (() => {
         }
         break;
       case 'create':
-        if (currentDashboardMode === 'vocabulary') {
-          VocabEditor.render();
-        } else {
-          QuizEditor.render();
-        }
+      case 'create-question':
+        QuizEditor.render();
         break;
       case 'create-vocab':
         VocabEditor.render();
@@ -119,7 +116,7 @@ const App = (() => {
 
   function updateActiveNav(route) {
     const navMap = {
-      'dashboard': null,
+      'dashboard': 'btn-dashboard',
       'play': 'btn-play',
       'create': 'btn-create',
       'create-vocab': 'btn-create',
@@ -202,7 +199,7 @@ const App = (() => {
         ${I18n.t('createModal.subtitle')}
       </p>
       <div class="create-mode-options">
-        <div class="create-mode-card" onclick="App.closeModal(); App.navigate('create');">
+        <div class="create-mode-card" onclick="App.closeModal(); App.navigate('create-question');">
           <div style="font-size: 36px; margin-bottom: 12px;">📝</div>
           <h4 style="font-size: 16px; font-weight: 700; margin-bottom: 6px;" data-i18n="dashboard.modeQuestion">${I18n.t('dashboard.modeQuestion')}</h4>
           <p style="font-size: 13px; color: var(--text-muted); line-height: 1.4;" data-i18n="createModal.questionDesc">${I18n.t('createModal.questionDesc')}</p>

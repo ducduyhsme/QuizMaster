@@ -56,89 +56,93 @@ const VocabEditor = (() => {
     }
 
     container.innerHTML = `
-      <div class="page-header">
-        <h1 data-i18n="${quizId ? 'vocab.editTitle' : 'vocab.createTitle'}">${quizId ? 'Sửa bộ từ vựng' : 'Tạo bộ từ vựng'}</h1>
-      </div>
+      <div style="padding-bottom: 80px;">
+        <div class="page-header">
+          <h1 data-i18n="${quizId ? 'vocab.editTitle' : 'vocab.createTitle'}">${quizId ? 'Sửa bộ từ vựng' : 'Tạo bộ từ vựng'}</h1>
+        </div>
 
-      <div class="card mb-6">
-        <div class="form-group">
-          <label class="form-label" data-i18n="create.quizTitle">Tên Quiz</label>
-          <input type="text" id="vocab-title" class="form-input" data-i18n-placeholder="create.quizTitlePlaceholder" placeholder="Nhập tên quiz..." value="${existingQuiz ? Components.escapeHtml(existingQuiz.title) : ''}">
+        <div class="card" style="margin-bottom: 32px;">
+          <div class="form-group">
+            <label class="form-label" data-i18n="create.quizTitle">Tên Quiz</label>
+            <input type="text" id="vocab-title" class="form-input" data-i18n-placeholder="create.quizTitlePlaceholder" placeholder="Nhập tên quiz..." value="${existingQuiz ? Components.escapeHtml(existingQuiz.title) : ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" data-i18n="create.description">Mô tả</label>
+            <textarea id="vocab-description" class="form-textarea" data-i18n-placeholder="create.descriptionPlaceholder" placeholder="Nhập mô tả (tùy chọn)...">${existingQuiz ? Components.escapeHtml(existingQuiz.description) : ''}</textarea>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">🔒 Quyền riêng tư</label>
+            <select id="vocab-visibility" class="form-select">
+              <option value="private" ${(existingQuiz && existingQuiz.visibility === 'private') || !existingQuiz ? 'selected' : ''}>🔒 Riêng tư (Private) — Ẩn mã code, chỉ mình bạn xem được</option>
+              <option value="unlisted" ${existingQuiz && existingQuiz.visibility === 'unlisted' ? 'selected' : ''}>🔗 Không công khai (Unlisted) — Có mã code chia sẻ, ẩn khỏi Cộng đồng</option>
+              <option value="public" ${existingQuiz && existingQuiz.visibility === 'public' ? 'selected' : ''}>🌐 Công khai (Public) — Hiển thị trên trang Cộng đồng chia sẻ</option>
+            </select>
+          </div>
         </div>
-        <div class="form-group">
-          <label class="form-label" data-i18n="create.description">Mô tả</label>
-          <textarea id="vocab-description" class="form-textarea" data-i18n-placeholder="create.descriptionPlaceholder" placeholder="Nhập mô tả (tùy chọn)...">${existingQuiz ? Components.escapeHtml(existingQuiz.description) : ''}</textarea>
-        </div>
-        <div class="form-group">
-          <label class="form-label">🔒 Quyền riêng tư</label>
-          <select id="vocab-visibility" class="form-select">
-            <option value="private" ${(existingQuiz && existingQuiz.visibility === 'private') || !existingQuiz ? 'selected' : ''}>🔒 Riêng tư (Private) — Ẩn mã code, chỉ mình bạn xem được</option>
-            <option value="unlisted" ${existingQuiz && existingQuiz.visibility === 'unlisted' ? 'selected' : ''}>🔗 Không công khai (Unlisted) — Có mã code chia sẻ, ẩn khỏi Cộng đồng</option>
-            <option value="public" ${existingQuiz && existingQuiz.visibility === 'public' ? 'selected' : ''}>🌐 Công khai (Public) — Hiển thị trên trang Cộng đồng chia sẻ</option>
-          </select>
-        </div>
-      </div>
 
-      <div class="card mb-6">
-        <div class="card-header">
-          <h2 class="card-title">Nhập danh sách từ vựng — <span id="vocab-count-label" data-i18n="vocab.count">Số từ: 0</span></h2>
+        <div class="card" style="margin-bottom: 32px;">
+          <div class="card-header">
+            <h2 class="card-title">Nhập danh sách từ vựng — <span id="vocab-count-label" data-i18n="vocab.count">Số từ: 0</span></h2>
+          </div>
+          
+          <div class="vocab-input-section" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; margin-bottom: 24px;">
+            <div class="vocab-input-col" style="display: flex; flex-direction: column; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 14px; padding: 18px;">
+              <label class="form-label" data-i18n="vocab.vocabLang" style="margin-bottom: 8px; font-weight: 700;">Ngôn ngữ Từ vựng</label>
+              <select id="vocab-lang" class="form-select" style="margin-bottom: 16px;">
+                ${languages.map(l => `<option value="${l.code}" ${(existingQuiz && existingQuiz.vocab_lang === l.code) || (!existingQuiz && l.code === 'en') ? 'selected' : ''}>${l.name}</option>`).join('')}
+              </select>
+              <textarea id="bulk-words" class="form-textarea" data-i18n-placeholder="vocab.textareaWord" placeholder="Mỗi dòng 1 từ" style="height: 200px;"></textarea>
+            </div>
+            <div class="vocab-input-col" style="display: flex; flex-direction: column; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 14px; padding: 18px;">
+              <label class="form-label" data-i18n="vocab.meaningLang" style="margin-bottom: 8px; font-weight: 700;">Ngôn ngữ cột Nghĩa</label>
+              <select id="meaning-lang" class="form-select" style="margin-bottom: 16px;">
+                ${languages.map(l => `<option value="${l.code}" ${(existingQuiz && existingQuiz.meaning_lang === l.code) || (!existingQuiz && l.code === 'vi') ? 'selected' : ''}>${l.name}</option>`).join('')}
+              </select>
+              <textarea id="bulk-meanings" class="form-textarea" data-i18n-placeholder="vocab.textareaMeaning" placeholder="Mỗi dòng 1 nghĩa" style="height: 200px;"></textarea>
+            </div>
+            <div class="vocab-input-col" style="display: flex; flex-direction: column; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 14px; padding: 18px;">
+              <label class="form-label" data-i18n="vocab.ipa" style="margin-bottom: 8px; font-weight: 700;">Phiên âm (IPA)</label>
+              <div style="height: 44px; display: flex; align-items: center; color: var(--text-muted); font-size: 13px; font-style: italic; margin-bottom: 16px;">Tùy chọn (Optional)</div>
+              <textarea id="bulk-ipas" class="form-textarea" data-i18n-placeholder="vocab.textareaIpa" placeholder="Có thể để trống" style="height: 200px;"></textarea>
+            </div>
+          </div>
+          
+          <div class="flex justify-between items-center">
+            <button id="add-bulk-btn" class="btn btn-ghost" style="border: 1px solid var(--border-color); border-radius: 10px; padding: 10px 20px;">
+              <span data-i18n="vocab.addToList">Thêm vào danh sách</span>
+            </button>
+          </div>
         </div>
         
-        <div class="vocab-input-section">
-          <div class="vocab-input-col">
-            <label class="form-label" data-i18n="vocab.vocabLang">Ngôn ngữ Từ vựng</label>
-            <select id="vocab-lang" class="form-select">
-              ${languages.map(l => `<option value="${l.code}" ${(existingQuiz && existingQuiz.vocab_lang === l.code) || (!existingQuiz && l.code === 'en') ? 'selected' : ''}>${l.name}</option>`).join('')}
-            </select>
-            <textarea id="bulk-words" class="form-textarea" data-i18n-placeholder="vocab.textareaWord" placeholder="Mỗi dòng 1 từ" style="height: 200px;"></textarea>
+        <div class="card" style="margin-bottom: 32px;">
+          <div class="table-container">
+            <table class="table vocab-table">
+              <thead>
+                <tr>
+                  <th width="5%" data-i18n="vocab.colNum">#</th>
+                  <th width="30%" data-i18n="vocab.colWord">Từ</th>
+                  <th width="30%" data-i18n="vocab.colMeaning">Nghĩa</th>
+                  <th width="20%" data-i18n="vocab.colIpa">Phiên âm</th>
+                  <th width="15%" data-i18n="vocab.colAction">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody id="vocab-list">
+                <!-- Vocab rows will be injected here -->
+              </tbody>
+            </table>
           </div>
-          <div class="vocab-input-col">
-            <label class="form-label" data-i18n="vocab.meaningLang">Ngôn ngữ cột Nghĩa</label>
-            <select id="meaning-lang" class="form-select">
-              ${languages.map(l => `<option value="${l.code}" ${(existingQuiz && existingQuiz.meaning_lang === l.code) || (!existingQuiz && l.code === 'vi') ? 'selected' : ''}>${l.name}</option>`).join('')}
-            </select>
-            <textarea id="bulk-meanings" class="form-textarea" data-i18n-placeholder="vocab.textareaMeaning" placeholder="Mỗi dòng 1 nghĩa" style="height: 200px;"></textarea>
-          </div>
-          <div class="vocab-input-col">
-            <label class="form-label" data-i18n="vocab.ipa">Phiên âm (IPA)</label>
-            <div style="height: 44px;"></div> <!-- Spacer to match select height -->
-            <textarea id="bulk-ipas" class="form-textarea" data-i18n-placeholder="vocab.textareaIpa" placeholder="Có thể để trống" style="height: 200px;"></textarea>
-          </div>
-        </div>
-        
-        <div class="flex justify-between items-center">
-          <button id="add-bulk-btn" class="btn btn-ghost">
-            <span data-i18n="vocab.addToList">Thêm vào danh sách</span>
-          </button>
-        </div>
-      </div>
-      
-      <div class="card mb-6">
-        <div class="table-container">
-          <table class="table vocab-table">
-            <thead>
-              <tr>
-                <th width="5%" data-i18n="vocab.colNum">#</th>
-                <th width="30%" data-i18n="vocab.colWord">Từ</th>
-                <th width="30%" data-i18n="vocab.colMeaning">Nghĩa</th>
-                <th width="20%" data-i18n="vocab.colIpa">Phiên âm</th>
-                <th width="15%" data-i18n="vocab.colAction">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody id="vocab-list">
-              <!-- Vocab rows will be injected here -->
-            </tbody>
-          </table>
         </div>
       </div>
 
-      <div class="flex justify-between items-center mt-6 mb-8">
-        <button id="cancel-btn" class="btn btn-ghost" data-i18n="common.cancel">Hủy</button>
-        <div style="display: flex; gap: 8px;">
-          ${existingQuiz ? `<a href="/api/export/${existingQuiz.id}" class="btn btn-ghost btn-lg" download>📤 ${I18n.t('export.downloadExcel')}</a>` : ''}
-          <button id="save-quiz-btn" class="btn btn-primary btn-lg">
-            <span class="btn-icon">💾</span> <span data-i18n="vocab.save">Lưu thành Quiz</span>
-          </button>
+      <div class="fixed-bottom-bar">
+        <div class="fixed-bottom-bar-inner">
+          <button id="cancel-btn" class="btn btn-ghost btn-lg" data-i18n="common.cancel">Hủy</button>
+          <div style="display: flex; gap: 12px; align-items: center;">
+            ${existingQuiz ? `<a href="/api/export/${existingQuiz.id}" class="btn btn-ghost btn-lg" download style="display: inline-flex; align-items: center; gap: 6px;">📤 ${I18n.t('export.downloadExcel')}</a>` : ''}
+            <button id="save-quiz-btn" class="btn btn-primary btn-lg" style="padding: 12px 28px; font-weight: 700; border-radius: 12px; cursor: pointer;">
+              <span class="btn-icon">💾</span> <span data-i18n="vocab.save">Lưu thành Quiz</span>
+            </button>
+          </div>
         </div>
       </div>
     `;

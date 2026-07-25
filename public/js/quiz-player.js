@@ -24,61 +24,65 @@ const QuizPlayer = (() => {
     if (!currentQuiz || !currentQuiz.id) return;
     if (saveProgressTimer) clearTimeout(saveProgressTimer);
 
-    saveProgressTimer = setTimeout(() => {
-      try {
-        const lightweightQueue = questionsQueue.map(q => ({
-          id: q.id,
-          _failedTries: q._failedTries,
-          question_type: q.question_type
-        }));
+    const currentQ = questionsQueue[currentIndex];
+    const effectiveQtype = (selectedQuestionType && selectedQuestionType !== 'all')
+      ? selectedQuestionType
+      : (currentQ && currentQ.question_type ? currentQ.question_type : 'all');
 
-        const lightweightResults = results.map(r => ({
-          questionId: r.question?.id,
-          userAnswer: r.userAnswer,
-          isCorrect: r.isCorrect,
-          retries: r.retries
-        }));
+    try {
+      const lightweightQueue = questionsQueue.map(q => ({
+        id: q.id,
+        _failedTries: q._failedTries,
+        question_type: q.question_type
+      }));
 
-        const progressData = {
-          quizId: currentQuiz.id,
-          currentIndex,
-          currentQuestionIndex: currentIndex,
-          questions: lightweightQueue,
-          queue: lightweightQueue,
-          selectedQuestionType: selectedQuestionType || 'all',
-          results: lightweightResults,
-          usedAnswers,
-          updatedAt: Date.now()
-        };
+      const lightweightResults = results.map(r => ({
+        questionId: r.question?.id,
+        userAnswer: r.userAnswer,
+        isCorrect: r.isCorrect,
+        retries: r.retries
+      }));
 
-        localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id, JSON.stringify(progressData));
+      const progressData = {
+        quizId: currentQuiz.id,
+        currentIndex,
+        currentQuestionIndex: currentIndex,
+        questions: lightweightQueue,
+        queue: lightweightQueue,
+        selectedQuestionType: effectiveQtype,
+        results: lightweightResults,
+        usedAnswers,
+        updatedAt: Date.now()
+      };
 
-        // Determine effective qtype to group sessions in Phiên chơi
-        const currentQ = questionsQueue[currentIndex];
-        const effectiveQtype = (selectedQuestionType && selectedQuestionType !== 'all')
-          ? selectedQuestionType
-          : (currentQ && currentQ.question_type ? currentQ.question_type : 'all');
-
-        // Always save active session to server DB so it appears in Phiên chơi
-        fetch('/api/sessions/save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            quizId: currentQuiz.id,
-            qtype: effectiveQtype,
-            sessionData: progressData
-          })
-        }).catch(e => {
-          console.warn('Unable to save session to server:', e);
-        });
-      } catch (e) {
-        console.warn('Unable to save progress', e);
+      localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id, JSON.stringify(progressData));
+      if (effectiveQtype && effectiveQtype !== 'all') {
+        localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id + '_' + effectiveQtype, JSON.stringify(progressData));
       }
-    }, 150);
+
+      // Always save active session to server DB so it appears in Phiên chơi
+      fetch('/api/sessions/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          quizId: currentQuiz.id,
+          qtype: effectiveQtype,
+          sessionData: progressData
+        })
+      }).catch(e => {
+        console.warn('Unable to save session to server:', e);
+      });
+    } catch (e) {
+      console.warn('Unable to save progress', e);
+    }
   }
 
-  function getSavedProgress(quizId) {
+  function getSavedProgress(quizId, targetQtype = null) {
     try {
+      if (targetQtype && targetQtype !== 'all') {
+        const qData = localStorage.getItem(PROGRESS_KEY_PREFIX + quizId + '_' + targetQtype);
+        if (qData) return JSON.parse(qData);
+      }
       const data = localStorage.getItem(PROGRESS_KEY_PREFIX + quizId);
       return data ? JSON.parse(data) : null;
     } catch (e) {
@@ -94,6 +98,8 @@ const QuizPlayer = (() => {
     const effectiveQtype = (selectedQuestionType && selectedQuestionType !== 'all') 
       ? selectedQuestionType 
       : 'all';
+
+    localStorage.removeItem(PROGRESS_KEY_PREFIX + quizId + '_' + effectiveQtype);
 
     fetch(`/api/sessions/quiz/${quizId}/qtype/${effectiveQtype}`, { method: 'DELETE' }).catch(e => {});
     fetch(`/api/sessions/quiz/${quizId}/qtype/all`, { method: 'DELETE' }).catch(e => {});
@@ -329,14 +335,39 @@ const QuizPlayer = (() => {
     return fullList;
   }
 
-  async function resumeQuiz(quizId) {
+  async function resumeQuiz(quizId, targetQtype = null, rawSessionData = null) {
     try {
       Components.closeModal();
-      const saved = getSavedProgress(quizId);
+      if (window.location.hash !== `#play/${quizId}`) {
+        if (history.replaceState) {
+          history.replaceState(null, '', `#play/${quizId}`);
+        } else {
+          window.location.hash = `play/${quizId}`;
+        }
+      }
+
+      let saved = rawSessionData;
+      if (typeof saved === 'string') {
+        try { saved = JSON.parse(saved); } catch (e) {}
+      }
+
+      if (!saved) {
+        saved = getSavedProgress(quizId, targetQtype);
+      }
+
       if (!saved) {
         startQuiz(quizId, true);
         return;
       }
+
+      const effectiveQtype = targetQtype || saved.selectedQuestionType || 'all';
+
+      try {
+        localStorage.setItem(PROGRESS_KEY_PREFIX + quizId, JSON.stringify(saved));
+        if (effectiveQtype && effectiveQtype !== 'all') {
+          localStorage.setItem(PROGRESS_KEY_PREFIX + quizId + '_' + effectiveQtype, JSON.stringify(saved));
+        }
+      } catch (e) {}
 
       const res = await fetch(`/api/quizzes/${quizId}`);
       if (!res.ok) throw new Error('Quiz not found');
@@ -367,7 +398,7 @@ const QuizPlayer = (() => {
       }
 
       const questionMap = new Map(rawQuestions.map(q => [q.id, q]));
-      const savedQueue = saved.queue || saved.questionsQueue || [];
+      const savedQueue = saved.queue || saved.questions || saved.questionsQueue || [];
       questionsQueue = savedQueue.map(item => {
         const fullQ = questionMap.get(item.id) || item;
         return {
@@ -377,8 +408,8 @@ const QuizPlayer = (() => {
         };
       });
 
-      currentIndex = saved.currentIndex || 0;
-      selectedQuestionType = saved.selectedQuestionType || 'all';
+      currentIndex = saved.currentIndex !== undefined ? saved.currentIndex : (saved.currentQuestionIndex || 0);
+      selectedQuestionType = effectiveQtype;
       results = saved.results || [];
       usedAnswers = saved.usedAnswers || {};
 
@@ -394,11 +425,15 @@ const QuizPlayer = (() => {
     }
   }
 
-  async function startQuiz(quizId, forceNew = false) {
+  async function startQuiz(quizId, forceNew = false, autoResume = false) {
     try {
       const saved = getSavedProgress(quizId);
       const savedQueue = saved ? (saved.queue || saved.questionsQueue || []) : [];
       if (saved && !forceNew && savedQueue.length > 0 && (saved.currentIndex || 0) < savedQueue.length) {
+        if (autoResume) {
+          resumeQuiz(quizId);
+          return;
+        }
         showResumeModal(saved, quizId);
         return;
       }

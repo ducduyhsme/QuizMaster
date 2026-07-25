@@ -8,6 +8,7 @@ const I18n = (() => {
   const translations = {
     vi: {
       // Navigation
+      'nav.dashboard': 'Danh sách Quiz',
       'nav.play': 'Chơi Quiz',
       'nav.create': 'Tạo Quiz',
       'nav.import': 'Import',
@@ -80,6 +81,10 @@ const I18n = (() => {
       'sessions.deleteConfirm': 'Bạn có chắc chắn muốn xóa phiên chơi dở này?',
       'sessions.deleted': 'Đã xóa phiên chơi dở',
       'sessions.totalInQuiz': 'Tổng cộng: {count} loại câu hỏi đang chơi dở',
+      'sessions.collapse': 'Thu nhỏ',
+      'sessions.expand': 'Mở rộng',
+      'sessions.modeVocab': '🔤 Từ vựng',
+      'sessions.modeQuestion': '📝 Câu hỏi',
 
       // Privacy
       'privacy.private': '🔒 Riêng tư',
@@ -325,6 +330,7 @@ const I18n = (() => {
 
     en: {
       // Navigation
+      'nav.dashboard': 'Quiz List',
       'nav.play': 'Play Quiz',
       'nav.create': 'Create Quiz',
       'nav.import': 'Import',
@@ -397,6 +403,10 @@ const I18n = (() => {
       'sessions.deleteConfirm': 'Are you sure you want to delete this saved session?',
       'sessions.deleted': 'Session deleted',
       'sessions.totalInQuiz': 'Total: {count} in-progress question types',
+      'sessions.collapse': 'Collapse',
+      'sessions.expand': 'Expand',
+      'sessions.modeVocab': '🔤 Vocabulary',
+      'sessions.modeQuestion': '📝 Questions',
 
       // Privacy
       'privacy.private': '🔒 Private',
