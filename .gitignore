@@ -1,1 +1,4 @@
-data/*.db
+data\*.db
+public\uploads\excel\*.xlsx
+*.db
+*.xlsx
