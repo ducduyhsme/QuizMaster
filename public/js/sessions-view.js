@@ -17,14 +17,23 @@ const SessionsView = (() => {
     mcq_word_ipa: 'Từ ➔ Chọn phiên âm IPA'
   };
 
+  function getQtypeName(qtype) {
+    const mainType = I18n.t(`qtype.${qtype}`);
+    const descType = I18n.t(`qtype.${qtype}_desc`);
+    if (mainType && descType && mainType !== `qtype.${qtype}`) {
+      return `${descType} (${mainType})`;
+    }
+    return QTYPE_NAMES[qtype] || qtype;
+  }
+
   async function render() {
     const container = document.getElementById(containerId);
     if (!container) return;
 
     container.innerHTML = `
       <div class="page-header">
-        <h1>🎮 Phiên chơi dở</h1>
-        <p>Quản lý và chơi tiếp các bài học dở dang của bạn theo từng loại câu hỏi trong Quiz</p>
+        <h1>🎮 ${I18n.t('sessions.title')}</h1>
+        <p>${I18n.t('sessions.subtitle')}</p>
       </div>
       <div class="flex justify-center items-center" style="padding: 40px;">
         <div class="spinner"></div>
@@ -33,24 +42,24 @@ const SessionsView = (() => {
 
     try {
       const res = await fetch('/api/sessions/vocab');
-      if (!res.ok) throw new Error('Không thể tải phiên chơi dở');
+      if (!res.ok) throw new Error(I18n.t('common.error'));
       const groups = await res.json();
 
       if (!groups || groups.length === 0) {
         container.innerHTML = `
           <div class="page-header">
-            <h1>🎮 Phiên chơi dở</h1>
-            <p>Quản lý và chơi tiếp các bài học dở dang của bạn theo từng loại câu hỏi trong Quiz</p>
+            <h1>🎮 ${I18n.t('sessions.title')}</h1>
+            <p>${I18n.t('sessions.subtitle')}</p>
           </div>
           <div class="card text-center" style="padding: 48px 24px;">
             <div style="font-size: 48px; margin-bottom: 16px;">📂</div>
             <h3 style="font-size: 18px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;">
-              Chưa có phiên chơi dở nào
+              ${I18n.t('sessions.emptyTitle')}
             </h3>
             <p style="font-size: 14px; color: var(--text-secondary); max-width: 400px; margin: 0 auto 24px;">
-              Khi bạn luyện tập trong Chế độ Từ vựng và tạm dừng, quá trình làm bài theo từng loại câu hỏi sẽ tự động được lưu tại đây.
+              ${I18n.t('sessions.emptyHint')}
             </p>
-            <a href="#dashboard" class="btn btn-primary">📚 Xem danh sách Quiz</a>
+            <a href="#dashboard" class="btn btn-primary">${I18n.t('sessions.viewQuizzes')}</a>
           </div>
         `;
         return;
@@ -61,11 +70,11 @@ const SessionsView = (() => {
         const quizId = g.quiz_id;
 
         const sessionItemsHTML = g.sessions.map(s => {
-          const qtypeName = QTYPE_NAMES[s.qtype] || s.qtype;
+          const qtypeName = getQtypeName(s.qtype);
           const current = s.current_index + 1;
           const total = s.total_questions || 1;
           const percent = Math.min(100, Math.round((current / total) * 100));
-          const timeStr = new Date(s.updated_at).toLocaleString('vi-VN');
+          const timeStr = new Date(s.updated_at).toLocaleString(I18n.getLang() === 'vi' ? 'vi-VN' : 'en-US');
 
           return `
             <div class="session-file-item card" style="margin-bottom: 12px; border-left: 4px solid var(--text-accent); padding: 16px;">
@@ -76,8 +85,8 @@ const SessionsView = (() => {
                     <span>${Components.escapeHtml(qtypeName)}</span>
                   </div>
                   <div style="display: flex; align-items: center; gap: 16px; margin-top: 8px; font-size: 13px; color: var(--text-secondary);">
-                    <span>📊 Tiến độ: <b>${current}/${total} câu</b> (${percent}%)</span>
-                    <span>🕒 Cập nhật: ${timeStr}</span>
+                    <span>${I18n.t('sessions.progress', { current, total, percent })}</span>
+                    <span>${I18n.t('sessions.updated', { time: timeStr })}</span>
                   </div>
                   <div style="width: 100%; max-width: 300px; height: 6px; background: var(--border-color); border-radius: 3px; margin-top: 8px; overflow: hidden;">
                     <div style="width: ${percent}%; height: 100%; background: var(--text-accent); transition: width 0.3s;"></div>
@@ -86,10 +95,10 @@ const SessionsView = (() => {
 
                 <div style="display: flex; align-items: center; gap: 8px;">
                   <button class="btn btn-primary btn-sm" onclick="SessionsView.resumeSession(${quizId}, '${s.qtype}')">
-                    ▶ Chơi tiếp
+                    ${I18n.t('sessions.resume')}
                   </button>
-                  <button class="btn btn-ghost btn-sm" onclick="SessionsView.deleteSession(${s.session_id})" style="color: #ef4444;" title="Xóa phiên chơi dở">
-                    🗑️ Xóa
+                  <button class="btn btn-ghost btn-sm" onclick="SessionsView.deleteSession(${s.session_id})" style="color: #ef4444;" title="${I18n.t('sessions.deleteTooltip')}">
+                    ${I18n.t('sessions.delete')}
                   </button>
                 </div>
               </div>
@@ -106,7 +115,7 @@ const SessionsView = (() => {
                   ${quizTitle}
                 </h3>
                 <span style="font-size: 13px; color: var(--text-secondary);">
-                  Tổng cộng: ${g.sessions.length} loại câu hỏi đang chơi dở
+                  ${I18n.t('sessions.totalInQuiz', { count: g.sessions.length })}
                 </span>
               </div>
             </div>
@@ -120,8 +129,8 @@ const SessionsView = (() => {
 
       container.innerHTML = `
         <div class="page-header">
-          <h1>🎮 Phiên chơi dở</h1>
-          <p>Quản lý và chơi tiếp các bài học dở dang của bạn theo từng loại câu hỏi trong Quiz</p>
+          <h1>🎮 ${I18n.t('sessions.title')}</h1>
+          <p>${I18n.t('sessions.subtitle')}</p>
         </div>
 
         <div class="sessions-tree-container">
@@ -132,7 +141,7 @@ const SessionsView = (() => {
     } catch (err) {
       container.innerHTML = `
         <div class="page-header">
-          <h1>🎮 Phiên chơi dở</h1>
+          <h1>🎮 ${I18n.t('sessions.title')}</h1>
         </div>
         <div class="card text-center" style="padding: 32px; color: #ef4444;">
           ⚠️ ${Components.escapeHtml(err.message)}
@@ -149,7 +158,7 @@ const SessionsView = (() => {
       } else if (window.QuizPlayer && typeof QuizPlayer.startQuiz === 'function') {
         QuizPlayer.startQuiz(quizId);
       } else {
-        Components.showToast('Không thể mở trình chơi Quiz', 'error');
+        Components.showToast(I18n.t('common.error'), 'error');
       }
     } catch (err) {
       Components.showToast(err.message, 'error');
@@ -157,11 +166,11 @@ const SessionsView = (() => {
   }
 
   async function deleteSession(sessionId) {
-    if (!confirm('Bạn có chắc chắn muốn xóa phiên chơi dở này?')) return;
+    if (!confirm(I18n.t('sessions.deleteConfirm'))) return;
     try {
       const res = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Xóa phiên chơi thất bại');
-      Components.showToast('Đã xóa phiên chơi dở', 'success');
+      if (!res.ok) throw new Error(I18n.t('common.error'));
+      Components.showToast(I18n.t('sessions.deleted'), 'success');
       render();
     } catch (err) {
       Components.showToast(err.message, 'error');

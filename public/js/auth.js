@@ -91,12 +91,12 @@ const Auth = (() => {
       userContainer.innerHTML = `
         <div style="display: flex; align-items: center; gap: 10px;">
           <span style="font-size: 14px; font-weight: 600; color: var(--text-accent);">👤 ${Components.escapeHtml(currentUser.username)}</span>
-          <button class="btn btn-ghost btn-sm" onclick="Auth.logout()" style="padding: 4px 10px; font-size: 13px; cursor: pointer;">🚪 Đăng xuất</button>
+          <button class="btn btn-ghost btn-sm" onclick="Auth.logout()" style="padding: 4px 10px; font-size: 13px; cursor: pointer;">${I18n.t('auth.logout')}</button>
         </div>
       `;
     } else {
       userContainer.innerHTML = `
-        <button class="btn btn-primary btn-sm" onclick="Auth.renderLoginScreen('login')" style="cursor: pointer;">🔑 Đăng nhập / Đăng ký</button>
+        <button class="btn btn-primary btn-sm" onclick="Auth.renderLoginScreen('login')" style="cursor: pointer;">${I18n.t('auth.loginNav')}</button>
       `;
     }
   }
@@ -114,43 +114,45 @@ const Auth = (() => {
           <div style="text-align: center; margin-bottom: 24px;">
             <div style="font-size: 48px; margin-bottom: 12px;">⚡</div>
             <h1 style="font-size: 26px; font-weight: 800; color: var(--text-primary); margin-bottom: 8px;">
-              ${isLogin ? '🔑 Đăng nhập QuizMaster' : '📝 Đăng ký tài khoản'}
+              ${isLogin ? I18n.t('auth.loginTitle') : I18n.t('auth.registerTitle')}
             </h1>
             <p style="font-size: 14px; color: var(--text-secondary);">
-              ${isLogin ? 'Nhập tài khoản để quản lý quiz, lưu phiên chơi và học tập' : 'Tạo tài khoản mới để bắt đầu học tập ngay'}
+              ${isLogin ? I18n.t('auth.loginSubtitle') : I18n.t('auth.registerSubtitle')}
             </p>
           </div>
 
           <form id="auth-main-form" onsubmit="Auth.handleAuthSubmit(event, '${mode}')">
             <div class="form-group" style="margin-bottom: 18px;">
-              <label class="form-label" style="font-weight: 600;">Tên tài khoản</label>
-              <input type="text" id="auth-username" class="form-input" placeholder="Nhập tên tài khoản..." required autofocus autocomplete="username" style="padding: 12px 16px;">
+              <label class="form-label" style="font-weight: 600;">${I18n.t('auth.username')}</label>
+              <input type="text" id="auth-username" class="form-input" placeholder="${I18n.t('auth.usernamePlaceholder')}" required autofocus autocomplete="username" style="padding: 12px 16px;">
             </div>
 
             <div class="form-group" style="margin-bottom: 24px;">
-              <label class="form-label" style="font-weight: 600;">Mật khẩu</label>
-              <input type="password" id="auth-password" class="form-input" placeholder="Nhập mật khẩu..." required autocomplete="${isLogin ? 'current-password' : 'new-password'}" style="padding: 12px 16px;">
+              <label class="form-label" style="font-weight: 600;">${I18n.t('auth.password')}</label>
+              <input type="password" id="auth-password" class="form-input" placeholder="${I18n.t('auth.passwordPlaceholder')}" required autocomplete="${isLogin ? 'current-password' : 'new-password'}" style="padding: 12px 16px;">
             </div>
 
-            <button type="submit" class="btn btn-primary btn-lg" style="width: 100%; padding: 14px; font-size: 16px; font-weight: 700; border-radius: 12px; margin-bottom: 12px; cursor: pointer;">
-              ${isLogin ? '🚀 Đăng nhập' : '✨ Tạo tài khoản'}
-            </button>
-            ${isLogin ? `
-              <button type="button" onclick="Auth.quickAdminLogin()" class="btn btn-success btn-lg" style="width: 100%; padding: 14px; font-size: 15px; font-weight: 700; border-radius: 12px; margin-bottom: 20px; cursor: pointer;">
-                ⚡ Đăng nhập nhanh làm Admin
-              </button>
+            ${!isLogin ? `
+            <div class="form-group" style="margin-bottom: 24px;">
+              <label class="form-label" style="font-weight: 600;">${I18n.t('auth.confirmPassword')}</label>
+              <input type="password" id="auth-confirm-password" class="form-input" placeholder="${I18n.t('auth.confirmPasswordPlaceholder')}" required autocomplete="new-password" style="padding: 12px 16px;">
+            </div>
             ` : ''}
+
+            <button type="submit" class="btn btn-primary btn-lg" style="width: 100%; padding: 14px; font-size: 16px; font-weight: 700; border-radius: 12px; margin-bottom: 20px; cursor: pointer;">
+              ${isLogin ? I18n.t('auth.loginBtn') : I18n.t('auth.registerBtn')}
+            </button>
           </form>
 
           <div style="text-align: center; font-size: 14px; color: var(--text-secondary);">
-            ${isLogin ? 'Chưa có tài khoản?' : 'Đã có tài khoản?'}
+            ${isLogin ? I18n.t('auth.noAccount') : I18n.t('auth.hasAccount')}
             <a href="javascript:void(0)" onclick="Auth.renderLoginScreen('${isLogin ? 'register' : 'login'}')" style="color: var(--text-accent); font-weight: 700; margin-left: 6px; text-decoration: underline; cursor: pointer;">
-              ${isLogin ? 'Đăng ký ngay' : 'Đăng nhập'}
+              ${isLogin ? I18n.t('auth.registerLink') : I18n.t('auth.loginLink')}
             </a>
           </div>
 
           <div style="text-align: center; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border-color); font-size: 13px; color: var(--text-muted);">
-            💡 Admin mặc định: <b>admin</b> / <b>admin</b>
+            ${I18n.t('auth.defaultNotice')}
           </div>
         </div>
       </div>
@@ -167,7 +169,7 @@ const Auth = (() => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Đăng nhập Admin thất bại');
       setSession(data.user, data.token);
-      Components.showToast('🎉 Đăng nhập thành công với tài khoản Admin!', 'success');
+      Components.showToast(I18n.t('auth.adminSuccess'), 'success');
       window.location.hash = '#dashboard';
       if (window.App && typeof App.handleRoute === 'function') {
         App.handleRoute();
@@ -189,8 +191,19 @@ const Auth = (() => {
     const password = passwordInput.value.trim();
 
     if (!username || !password) {
-      Components.showToast('Vui lòng điền đầy đủ tên tài khoản và mật khẩu', 'warning');
+      Components.showToast(I18n.t('auth.fillRequired'), 'warning');
       return;
+    }
+
+    // Validate confirm password on register
+    if (mode === 'register') {
+      const confirmInput = document.getElementById('auth-confirm-password');
+      const confirmPassword = confirmInput ? confirmInput.value.trim() : '';
+      if (password !== confirmPassword) {
+        Components.showToast(I18n.t('auth.passwordMismatch'), 'warning');
+        if (confirmInput) confirmInput.focus();
+        return;
+      }
     }
 
     const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/register';
@@ -208,7 +221,7 @@ const Auth = (() => {
       }
 
       setSession(data.user, data.token);
-      Components.showToast(mode === 'login' ? 'Đăng nhập thành công!' : 'Đăng ký tài khoản thành công!', 'success');
+      Components.showToast(mode === 'login' ? I18n.t('auth.loginSuccess') : I18n.t('auth.registerSuccess'), 'success');
 
       window.location.hash = '#dashboard';
       if (window.App && typeof App.renderDashboard === 'function') {
@@ -226,7 +239,7 @@ const Auth = (() => {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch (e) {}
     setSession(null, null);
-    Components.showToast('Đã đăng xuất', 'info');
+    Components.showToast(I18n.t('auth.loggedOut'), 'info');
     renderLoginScreen('login');
   }
 

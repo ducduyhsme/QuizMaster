@@ -56,6 +56,9 @@ const App = (() => {
       return;
     }
 
+    // Ensure nav user info is always displayed when logged in
+    Auth.updateNavUser();
+
     switch (route) {
       case 'dashboard':
         renderDashboard();
@@ -408,20 +411,26 @@ const App = (() => {
       </div>
 
       <div class="card" style="margin-bottom: 24px;">
-        <h3 class="settings-section-title">🔒 Đổi mật khẩu</h3>
-        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
-          Thay đổi mật khẩu đăng nhập cho tài khoản <b>${Components.escapeHtml(Auth.getUser() ? Auth.getUser().username : 'admin')}</b>
+        <h3 class="settings-section-title" data-i18n="settings.changePasswordTitle">${I18n.t('settings.changePasswordTitle')}</h3>
+        <p style="font-size: 14px; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.5;">
+          ${I18n.t('settings.changePasswordDesc', { username: `<strong style="color: var(--text-accent);">${Components.escapeHtml(Auth.getUser() ? Auth.getUser().username : 'admin')}</strong>` })}
         </p>
-        <form onsubmit="App.changePassword(event)" style="max-width: 400px;">
-          <div class="form-group" style="margin-bottom: 12px;">
-            <label class="form-label" style="font-size: 13px;">Mật khẩu hiện tại</label>
-            <input type="password" id="change-old-password" class="form-input" required placeholder="Mật khẩu hiện tại...">
-          </div>
+        <form onsubmit="App.changePassword(event)" style="max-width: 440px;">
           <div class="form-group" style="margin-bottom: 16px;">
-            <label class="form-label" style="font-size: 13px;">Mật khẩu mới</label>
-            <input type="password" id="change-new-password" class="form-input" required placeholder="Mật khẩu mới (tối thiểu 3 ký tự)...">
+            <label class="form-label" style="font-weight: 600;" data-i18n="settings.currentPassword">${I18n.t('settings.currentPassword')}</label>
+            <input type="password" id="change-old-password" class="form-input" required 
+                   placeholder="${I18n.t('settings.currentPasswordPlaceholder')}" data-i18n-placeholder="settings.currentPasswordPlaceholder"
+                   style="padding: 12px 16px;">
           </div>
-          <button type="submit" class="btn btn-primary btn-sm">💾 Lưu mật khẩu mới</button>
+          <div class="form-group" style="margin-bottom: 20px;">
+            <label class="form-label" style="font-weight: 600;" data-i18n="settings.newPassword">${I18n.t('settings.newPassword')}</label>
+            <input type="password" id="change-new-password" class="form-input" required 
+                   placeholder="${I18n.t('settings.newPasswordPlaceholder')}" data-i18n-placeholder="settings.newPasswordPlaceholder"
+                   style="padding: 12px 16px;">
+          </div>
+          <button type="submit" class="btn btn-primary" style="padding: 12px 24px; font-size: 14px; font-weight: 700; border-radius: 10px; cursor: pointer;">
+            ${I18n.t('settings.savePassword')}
+          </button>
         </form>
       </div>
 
@@ -430,8 +439,8 @@ const App = (() => {
         
         <div class="toggle-group">
           <div class="toggle-info">
-            <span class="toggle-label">${I18n.t('settings.langLabel')}</span>
-            <span class="toggle-desc">${I18n.t('settings.langDesc')}</span>
+            <span class="toggle-label" data-i18n="settings.langLabel">${I18n.t('settings.langLabel')}</span>
+            <span class="toggle-desc" data-i18n="settings.langDesc">${I18n.t('settings.langDesc')}</span>
           </div>
           <select class="form-select" id="lang-select" style="width: auto; min-width: 160px;"
                   onchange="App.changeLang(this.value)">
@@ -483,8 +492,8 @@ const App = (() => {
         body: JSON.stringify({ oldPassword, newPassword })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Thất bại');
-      Components.showToast('✅ ' + data.message, 'success');
+      if (!res.ok) throw new Error(data.error || I18n.t('settings.passwordFailed'));
+      Components.showToast('✅ ' + I18n.t('settings.passwordChanged'), 'success');
       if (document.getElementById('change-old-password')) document.getElementById('change-old-password').value = '';
       if (document.getElementById('change-new-password')) document.getElementById('change-new-password').value = '';
     } catch (err) {
@@ -494,8 +503,12 @@ const App = (() => {
 
   function changeLang(lang) {
     I18n.setLang(lang);
+    if (typeof Auth !== 'undefined' && typeof Auth.updateNavUser === 'function') {
+      Auth.updateNavUser();
+    }
     renderSettings();
     I18n.updateDOM();
+    handleRoute();
   }
 
   function onVolumeChange(val) {
@@ -700,6 +713,7 @@ const App = (() => {
 
   return {
     navigate,
+    handleRoute,
     renderDashboard,
     renderSettings,
     searchQuizzes,

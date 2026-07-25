@@ -71,7 +71,7 @@ const Components = (() => {
       });
 
       const isPinned = q.is_pinned === 1 || q.code === 'WRONG0';
-      const pinnedBadge = isPinned ? `<span style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 4px;">📌 Ghim</span>` : '';
+      const pinnedBadge = isPinned ? `<span style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 4px;">📌 ${I18n.t('quiz.pinned')}</span>` : '';
 
       let actions = '';
       if (showPlay) actions += `<button class="btn btn-sm btn-primary" onclick="App.playQuiz(${q.id})" title="${I18n.t('common.play')}">▶</button>`;
@@ -86,18 +86,18 @@ const Components = (() => {
       const visibility = q.visibility || 'private';
       let visibilityBadge = '';
       if (visibility === 'private') {
-        visibilityBadge = `<span style="background: rgba(100, 116, 139, 0.15); color: var(--text-secondary); border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 4px;">🔒 Riêng tư</span>`;
+        visibilityBadge = `<span style="background: rgba(100, 116, 139, 0.15); color: var(--text-secondary); border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 4px;">${I18n.t('privacy.private')}</span>`;
       } else if (visibility === 'unlisted') {
-        visibilityBadge = `<span style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 4px;">🔗 Không công khai</span>`;
+        visibilityBadge = `<span style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 4px;">${I18n.t('privacy.unlisted')}</span>`;
       } else if (visibility === 'public') {
-        visibilityBadge = `<span style="background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 4px;">🌐 Công khai</span>`;
+        visibilityBadge = `<span style="background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 4px;">${I18n.t('privacy.public')}</span>`;
       }
 
       let codeCell = '';
       if (visibility === 'private') {
-        codeCell = `<span class="code-badge muted" style="opacity: 0.6; cursor: not-allowed;" title="Quiz Riêng tư (Đã ẩn mã code)">•••••• 🔒</span>`;
+        codeCell = `<span class="code-badge muted" style="opacity: 0.6; cursor: not-allowed;" title="${I18n.t('code.privateTitle')}">•••••• 🔒</span>`;
       } else {
-        codeCell = `<span class="code-badge" onclick="App.copyCode('${q.code}')" title="Click để sao chép mã">${q.code} 📋</span>`;
+        codeCell = `<span class="code-badge" onclick="App.copyCode('${q.code}')" title="${I18n.t('code.clickToCopy')}">${q.code} 📋</span>`;
       }
 
       return `
