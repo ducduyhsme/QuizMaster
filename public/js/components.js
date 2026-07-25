@@ -71,6 +71,7 @@ const Components = (() => {
       });
 
       const isPinned = q.is_pinned === 1 || q.code === 'WRONG0';
+      const pinnedBadge = isPinned ? `<span style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 4px;">📌 Ghim</span>` : '';
 
       let actions = '';
       if (showPlay) actions += `<button class="btn btn-sm btn-primary" onclick="App.playQuiz(${q.id})" title="${I18n.t('common.play')}">▶</button>`;

@@ -29,36 +29,48 @@ const QuizPlayer = (() => {
         const lightweightQueue = questionsQueue.map(q => ({
           id: q.id,
           _failedTries: q._failedTries,
-          question_type: q.question_type,
-          question_text: q.question_text,
-          correct_answer: q.correct_answer,
-          ipa: q.ipa
+          question_type: q.question_type
         }));
+
+        const lightweightResults = results.map(r => ({
+          questionId: r.question?.id,
+          userAnswer: r.userAnswer,
+          isCorrect: r.isCorrect,
+          retries: r.retries
+        }));
+
         const progressData = {
           quizId: currentQuiz.id,
           currentIndex,
           currentQuestionIndex: currentIndex,
           questions: lightweightQueue,
           queue: lightweightQueue,
-          selectedQuestionType,
-          results,
+          selectedQuestionType: selectedQuestionType || 'all',
+          results: lightweightResults,
           usedAnswers,
           updatedAt: Date.now()
         };
+
         localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id, JSON.stringify(progressData));
 
-        // Save to server sessions table for Vocabulary mode
-        if (currentQuiz.quiz_type === 'vocabulary' && selectedQuestionType && selectedQuestionType !== 'all') {
-          fetch('/api/sessions/save', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              quizId: currentQuiz.id,
-              qtype: selectedQuestionType,
-              sessionData: progressData
-            })
-          }).catch(e => {});
-        }
+        // Determine effective qtype to group sessions in Phiên chơi
+        const currentQ = questionsQueue[currentIndex];
+        const effectiveQtype = (selectedQuestionType && selectedQuestionType !== 'all')
+          ? selectedQuestionType
+          : (currentQ && currentQ.question_type ? currentQ.question_type : 'all');
+
+        // Always save active session to server DB so it appears in Phiên chơi
+        fetch('/api/sessions/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            quizId: currentQuiz.id,
+            qtype: effectiveQtype,
+            sessionData: progressData
+          })
+        }).catch(e => {
+          console.warn('Unable to save session to server:', e);
+        });
       } catch (e) {
         console.warn('Unable to save progress', e);
       }
@@ -79,9 +91,12 @@ const QuizPlayer = (() => {
     if (saveProgressTimer) clearTimeout(saveProgressTimer);
     localStorage.removeItem(PROGRESS_KEY_PREFIX + quizId);
 
-    if (currentQuiz && currentQuiz.quiz_type === 'vocabulary' && selectedQuestionType && selectedQuestionType !== 'all') {
-      fetch(`/api/sessions/quiz/${quizId}/qtype/${selectedQuestionType}`, { method: 'DELETE' }).catch(e => {});
-    }
+    const effectiveQtype = (selectedQuestionType && selectedQuestionType !== 'all') 
+      ? selectedQuestionType 
+      : 'all';
+
+    fetch(`/api/sessions/quiz/${quizId}/qtype/${effectiveQtype}`, { method: 'DELETE' }).catch(e => {});
+    fetch(`/api/sessions/quiz/${quizId}/qtype/all`, { method: 'DELETE' }).catch(e => {});
   }
 
   function renderSelectScreen() {
@@ -231,10 +246,13 @@ const QuizPlayer = (() => {
               ${savedBadge ? `<div style="margin-top: 4px;">${savedBadge}</div>` : ''}
             </div>
           </div>
-          <div class="play-quiz-card-actions">
+          <div class="play-quiz-card-actions" style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; align-items: center;">
             <button class="btn btn-ghost edit-quiz-btn" onclick="event.stopPropagation(); App.editQuiz(${q.id}, '${q.quiz_type || 'question'}')" title="${I18n.t('common.edit')}">
               ✏️ ${I18n.t('common.edit')}
             </button>
+            <a href="/api/export/${q.id}" class="btn btn-ghost export-quiz-btn" onclick="event.stopPropagation();" download title="Xuất file Excel" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+              📤 ${I18n.t('export.downloadExcel') || 'Xuất Excel'}
+            </a>
             <button class="btn btn-primary start-quiz-btn" onclick="event.stopPropagation(); QuizPlayer.startQuiz(${q.id})">
               ${hasSaved ? '▶ ' + I18n.t('resume.continue') : '▶ ' + I18n.t('play.start')}
             </button>
@@ -1354,3 +1372,5 @@ const QuizPlayer = (() => {
     handleDontRemember,
   };
 })();
+
+window.QuizPlayer = QuizPlayer;

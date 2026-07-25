@@ -143,12 +143,11 @@ const SessionsView = (() => {
 
   async function resumeSession(quizId, qtype) {
     try {
-      const res = await fetch(`/api/quizzes/${quizId}`);
-      if (!res.ok) throw new Error('Không thể tải Quiz');
-      const quiz = await res.json();
-
-      if (window.QuizPlayer && typeof QuizPlayer.play === 'function') {
-        QuizPlayer.play(quiz, { resumeQtype: qtype });
+      // Use App.navigate to go to play route, which triggers startQuiz and shows resume modal
+      if (window.App && typeof App.navigate === 'function') {
+        App.navigate('play', quizId);
+      } else if (window.QuizPlayer && typeof QuizPlayer.startQuiz === 'function') {
+        QuizPlayer.startQuiz(quizId);
       } else {
         Components.showToast('Không thể mở trình chơi Quiz', 'error');
       }
@@ -175,3 +174,5 @@ const SessionsView = (() => {
     deleteSession
   };
 })();
+
+window.SessionsView = SessionsView;

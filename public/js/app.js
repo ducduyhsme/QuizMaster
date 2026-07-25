@@ -42,8 +42,19 @@ const App = (() => {
   }
 
   function handleRoute() {
+    if (window.Components && typeof Components.closeModal === 'function') {
+      Components.closeModal();
+    }
+    document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+
     const hash = window.location.hash.slice(1) || 'dashboard';
     const [route, ...params] = hash.split('/');
+
+    if (!Auth.isLoggedIn()) {
+      Auth.renderLoginScreen(route === 'register' ? 'register' : 'login');
+      updateActiveNav(null);
+      return;
+    }
 
     switch (route) {
       case 'dashboard':
@@ -76,10 +87,12 @@ const App = (() => {
         QuizImport.render();
         break;
       case 'community':
-        if (window.CommunityView) CommunityView.render();
+        if (typeof CommunityView !== 'undefined') CommunityView.render();
+        else if (window.CommunityView) window.CommunityView.render();
         break;
       case 'sessions':
-        if (window.SessionsView) SessionsView.render();
+        if (typeof SessionsView !== 'undefined') SessionsView.render();
+        else if (window.SessionsView) window.SessionsView.render();
         break;
       case 'settings':
         renderSettings();
@@ -110,6 +123,8 @@ const App = (() => {
       'edit': 'btn-create',
       'edit-vocab': 'btn-create',
       'import': 'btn-import',
+      'community': 'btn-community',
+      'sessions': 'btn-sessions',
       'settings': 'btn-settings',
     };
 
@@ -208,23 +223,33 @@ const App = (() => {
   async function loadDashboardQuizzes() {
     try {
       const res = await fetch('/api/quizzes');
-      allQuizzes = await res.json();
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Lỗi khi tải dữ liệu');
+      }
+      allQuizzes = Array.isArray(data) ? data : [];
       searchQuizzes(document.getElementById('search-quiz')?.value || '');
     } catch (err) {
-      document.getElementById('quiz-list-container').innerHTML =
-        `<div class="text-center text-muted" style="padding: 40px;">${I18n.t('common.error')}</div>`;
+      console.error('Error loading quizzes:', err);
+      allQuizzes = [];
+      const container = document.getElementById('quiz-list-container');
+      if (container) {
+        container.classList.remove('loading-overlay');
+        container.innerHTML = `<div class="text-center text-muted" style="padding: 40px; color: var(--color-danger, #ef4444);">${Components.escapeHtml(err.message || I18n.t('common.error'))}</div>`;
+      }
     }
   }
 
   function searchQuizzes(query = '') {
     const q = query.toLowerCase().trim();
-    let filtered = allQuizzes.filter(quiz => 
+    const quizList = Array.isArray(allQuizzes) ? allQuizzes : [];
+    let filtered = quizList.filter(quiz => 
       (quiz.quiz_type || 'question') === currentDashboardMode
     );
 
     if (q) {
       filtered = filtered.filter(quiz =>
-        quiz.title.toLowerCase().includes(q) || quiz.code.includes(q)
+        (quiz.title || '').toLowerCase().includes(q) || (quiz.code || '').includes(q)
       );
     }
     
@@ -467,6 +492,12 @@ const App = (() => {
     }
   }
 
+  function changeLang(lang) {
+    I18n.setLang(lang);
+    renderSettings();
+    I18n.updateDOM();
+  }
+
   function onVolumeChange(val) {
     const num = parseFloat(val);
     const valid = isNaN(num) ? 0.5 : Math.max(0, Math.min(2.0, num));
@@ -695,3 +726,5 @@ const App = (() => {
     toggleMobileMenu,
   };
 })();
+
+window.App = App;
