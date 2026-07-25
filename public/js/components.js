@@ -82,18 +82,27 @@ const Components = (() => {
         ? `<span class="quiz-type-badge">${I18n.t('dashboard.typeVocab')}</span>` 
         : `<span class="quiz-type-badge">${I18n.t('dashboard.typeQuestion')}</span>`;
 
-      const pinnedBadge = isPinned 
-        ? `<span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 700; margin-left: 6px;">📌 ${I18n.t('quiz.pinned')}</span>` 
-        : '';
+      const visibility = q.visibility || 'private';
+      let visibilityBadge = '';
+      if (visibility === 'private') {
+        visibilityBadge = `<span style="background: rgba(100, 116, 139, 0.15); color: var(--text-secondary); border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 4px;">🔒 Riêng tư</span>`;
+      } else if (visibility === 'unlisted') {
+        visibilityBadge = `<span style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 4px;">🔗 Không công khai</span>`;
+      } else if (visibility === 'public') {
+        visibilityBadge = `<span style="background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 4px;">🌐 Công khai</span>`;
+      }
+
+      let codeCell = '';
+      if (visibility === 'private') {
+        codeCell = `<span class="code-badge muted" style="opacity: 0.6; cursor: not-allowed;" title="Quiz Riêng tư (Đã ẩn mã code)">•••••• 🔒</span>`;
+      } else {
+        codeCell = `<span class="code-badge" onclick="App.copyCode('${q.code}')" title="Click để sao chép mã">${q.code} 📋</span>`;
+      }
 
       return `
         <tr ${isPinned ? 'style="background: rgba(239, 68, 68, 0.04);"' : ''}>
-          <td><strong>${escapeHtml(q.title)}</strong> ${typeBadge} ${pinnedBadge}</td>
-          <td>
-            <span class="code-badge" onclick="App.copyCode('${q.code}')" title="Click to copy">
-              ${q.code} 📋
-            </span>
-          </td>
+          <td><strong>${escapeHtml(q.title)}</strong> ${typeBadge} ${visibilityBadge} ${pinnedBadge}</td>
+          <td>${codeCell}</td>
           <td>${q.question_count || 0}</td>
           <td>${date}</td>
           <td>
@@ -108,11 +117,11 @@ const Components = (() => {
         <table class="table" id="quiz-table">
           <thead>
             <tr>
-              <th>${I18n.t('table.title')}</th>
-              <th>${I18n.t('table.code')}</th>
-              <th>${I18n.t('table.questions')}</th>
-              <th>${I18n.t('table.created')}</th>
-              <th>${I18n.t('table.actions')}</th>
+              <th style="width: auto;">${I18n.t('table.title')}</th>
+              <th style="width: 14%; min-width: 100px;">${I18n.t('table.code')}</th>
+              <th style="width: 14%; min-width: 100px;">${I18n.t('table.questions')}</th>
+              <th style="width: 18%; min-width: 120px;">${I18n.t('table.created')}</th>
+              <th style="width: 18%; min-width: 150px;">${I18n.t('table.actions')}</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>

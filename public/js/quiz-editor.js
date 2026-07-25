@@ -28,6 +28,14 @@ const QuizEditor = (() => {
           <label class="form-label">${I18n.t('create.description')}</label>
           <textarea class="form-textarea" id="quiz-description" placeholder="${I18n.t('create.descriptionPlaceholder')}" rows="2"></textarea>
         </div>
+        <div class="form-group">
+          <label class="form-label">🔒 Quyền riêng tư</label>
+          <select id="quiz-visibility" class="form-select">
+            <option value="private" selected>🔒 Riêng tư (Private) — Ẩn mã code, chỉ mình bạn xem được</option>
+            <option value="unlisted">🔗 Không công khai (Unlisted) — Có mã code chia sẻ, ẩn khỏi Cộng đồng</option>
+            <option value="public">🌐 Công khai (Public) — Hiển thị trên trang Cộng đồng chia sẻ</option>
+          </select>
+        </div>
       </div>
 
       <div class="card">
@@ -65,6 +73,8 @@ const QuizEditor = (() => {
 
       document.getElementById('quiz-title').value = quiz.title;
       document.getElementById('quiz-description').value = quiz.description || '';
+      const visSelect = document.getElementById('quiz-visibility');
+      if (visSelect) visSelect.value = quiz.visibility || 'private';
 
       questionsList = quiz.questions.map(q => ({
         id: q.id,
@@ -272,12 +282,14 @@ const QuizEditor = (() => {
     try {
       let quizId;
 
+      const visibility = document.getElementById('quiz-visibility')?.value || 'private';
+
       if (editingQuizId) {
         // Update existing quiz
         await fetch(`/api/quizzes/${editingQuizId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, description })
+          body: JSON.stringify({ title, description, visibility })
         });
         quizId = editingQuizId;
 
@@ -327,7 +339,7 @@ const QuizEditor = (() => {
         const createRes = await fetch('/api/quizzes', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, description })
+          body: JSON.stringify({ title, description, visibility })
         });
         if (!createRes.ok) {
           const errData = await createRes.json();

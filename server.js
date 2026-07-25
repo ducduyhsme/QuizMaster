@@ -4,7 +4,17 @@ const multer = require('multer');
 const XLSX = require('xlsx');
 const path = require('path');
 const fs = require('fs');
-const { initDatabase, generateUniqueCode, quizzes, questions, bulkInsertQuestions } = require('./database');
+const crypto = require('crypto');
+const {
+  initDatabase,
+  generateUniqueCode,
+  users,
+  quizzes,
+  questions,
+  sessions,
+  bulkInsertQuestions,
+  ensureWrongQuizForUser
+} = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,7 +33,7 @@ const excelDir = path.join(uploadsDir, 'excel');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
-// Multer config for images
+// Multer configs
 const imageStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, imagesDir),
   filename: (req, file, cb) => {
@@ -32,7 +42,6 @@ const imageStorage = multer.diskStorage({
   }
 });
 
-// Multer config for audio
 const audioStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, audioDir),
   filename: (req, file, cb) => {
@@ -41,7 +50,6 @@ const audioStorage = multer.diskStorage({
   }
 });
 
-// Multer config for excel
 const excelStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, excelDir),
   filename: (req, file, cb) => {
@@ -55,11 +63,8 @@ const uploadImage = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i;
-    if (allowed.test(path.extname(file.originalname))) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed'));
-    }
+    if (allowed.test(path.extname(file.originalname))) cb(null, true);
+    else cb(new Error('Only image files are allowed'));
   }
 });
 
@@ -68,11 +73,8 @@ const uploadAudio = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = /\.(mp3|wav|ogg|m4a|aac|flac|wma)$/i;
-    if (allowed.test(path.extname(file.originalname))) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only audio files are allowed'));
-    }
+    if (allowed.test(path.extname(file.originalname))) cb(null, true);
+    else cb(new Error('Only audio files are allowed'));
   }
 });
 
@@ -81,22 +83,137 @@ const uploadExcel = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = /\.(xlsx|xls|csv)$/i;
-    if (allowed.test(path.extname(file.originalname))) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only Excel/CSV files are allowed'));
-    }
+    if (allowed.test(path.extname(file.originalname))) cb(null, true);
+    else cb(new Error('Only Excel/CSV files are allowed'));
   }
 });
 
-// ============ API Routes ============
+// ============ Auth & Session Middleware ============
+const activeSessions = new Map();
 
-// --- Quizzes ---
+function authenticate(req, res, next) {
+  const authHeader = req.headers.authorization;
+  let token = null;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7);
+  } else if (req.headers['x-session-token']) {
+    token = req.headers['x-session-token'];
+  }
+
+  if (token && activeSessions.has(token)) {
+    req.user = activeSessions.get(token);
+    return next();
+  }
+
+  // Default to Admin user (userId = 1) if no token provided
+  req.user = { userId: 1, username: 'admin' };
+  next();
+}
+
+app.use(authenticate);
+
+// ============ Authentication APIs ============
+
+app.post('/api/auth/register', (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+    const cleanUser = String(username).trim();
+    if (cleanUser.length < 3) {
+      return res.status(400).json({ error: 'Username must be at least 3 characters' });
+    }
+    if (password.length < 3) {
+      return res.status(400).json({ error: 'Password must be at least 3 characters' });
+    }
+
+    const existing = users.findByUsername(cleanUser);
+    if (existing) {
+      return res.status(400).json({ error: 'Tên tài khoản đã tồn tại' });
+    }
+
+    const user = users.create(cleanUser, password);
+    const token = crypto.randomBytes(24).toString('hex');
+    const sessionObj = { userId: user.id, username: user.username };
+    activeSessions.set(token, sessionObj);
+
+    res.status(201).json({ user: sessionObj, token });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
+    }
+
+    const user = users.findByUsername(String(username).trim());
+    if (!user || !users.verifyPassword(user, password)) {
+      return res.status(401).json({ error: 'Tài khoản hoặc mật khẩu không chính xác' });
+    }
+
+    const token = crypto.randomBytes(24).toString('hex');
+    const sessionObj = { userId: user.id, username: user.username };
+    activeSessions.set(token, sessionObj);
+
+    res.json({ user: sessionObj, token });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const authHeader = req.headers.authorization;
+  let token = null;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.substring(7);
+  } else if (req.headers['x-session-token']) {
+    token = req.headers['x-session-token'];
+  }
+  if (token) {
+    activeSessions.delete(token);
+  }
+  res.json({ success: true });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  res.json({ user: req.user });
+});
+
+app.post('/api/auth/change-password', (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ error: 'Mật khẩu cũ và mật khẩu mới là bắt buộc' });
+    }
+    if (newPassword.length < 3) {
+      return res.status(400).json({ error: 'Mật khẩu mới phải có ít nhất 3 ký tự' });
+    }
+
+    const dbUser = users.findById(req.user.userId);
+    const fullUser = users.findByUsername(dbUser.username);
+
+    if (!users.verifyPassword(fullUser, oldPassword)) {
+      return res.status(400).json({ error: 'Mật khẩu cũ không chính xác' });
+    }
+
+    users.changePassword(req.user.userId, newPassword);
+    res.json({ success: true, message: 'Đã đổi mật khẩu thành công' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============ Quizzes APIs ============
 
 app.get('/api/quizzes', (req, res) => {
   try {
-    const allQuizzes = quizzes.getAll();
-    res.json(allQuizzes);
+    const userQuizzes = quizzes.getAllForUser(req.user.userId);
+    res.json(userQuizzes);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -162,6 +279,12 @@ app.get('/api/quizzes/:id', (req, res) => {
   try {
     const quiz = quizzes.getById(parseInt(req.params.id));
     if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
+    
+    // Privacy check
+    if (quiz.visibility === 'private' && Number(quiz.user_id) !== Number(req.user.userId)) {
+      return res.status(403).json({ error: 'Quiz này ở chế độ Riêng tư' });
+    }
+
     let qs = questions.getByQuizId(quiz.id);
     qs = ensureVocabQuizUpToDate(quiz, qs);
     res.json({ ...quiz, questions: qs });
@@ -172,8 +295,8 @@ app.get('/api/quizzes/:id', (req, res) => {
 
 app.get('/api/quizzes/code/:code', (req, res) => {
   try {
-    const quiz = quizzes.getByCode(req.params.code);
-    if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
+    const quiz = quizzes.getByCode(req.params.code, req.user.userId);
+    if (!quiz) return res.status(404).json({ error: 'Quiz không tồn tại hoặc ở chế độ Riêng tư' });
     let qs = questions.getByQuizId(quiz.id);
     qs = ensureVocabQuizUpToDate(quiz, qs);
     res.json({ ...quiz, questions: qs });
@@ -184,10 +307,10 @@ app.get('/api/quizzes/code/:code', (req, res) => {
 
 app.post('/api/quizzes', (req, res) => {
   try {
-    const { title, description } = req.body;
+    const { title, description, visibility = 'private' } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
     const code = generateUniqueCode();
-    const quizId = quizzes.create(code, title, description || '');
+    const quizId = quizzes.create(req.user.userId, code, title, description || '', 'question', null, null, visibility);
     const quiz = quizzes.getById(quizId);
     res.status(201).json(quiz);
   } catch (err) {
@@ -195,16 +318,45 @@ app.post('/api/quizzes', (req, res) => {
   }
 });
 
+app.put('/api/quizzes/:id', (req, res) => {
+  try {
+    const quizId = parseInt(req.params.id);
+    const { title, description, visibility = 'private' } = req.body;
+    const existing = quizzes.getById(quizId);
+    if (!existing || Number(existing.user_id) !== Number(req.user.userId)) {
+      return res.status(403).json({ error: 'Bạn không có quyền sửa Quiz này' });
+    }
+
+    quizzes.update(quizId, req.user.userId, title || existing.title, description ?? existing.description, existing.quiz_type, existing.vocab_lang, existing.meaning_lang, visibility);
+    const updated = quizzes.getById(quizId);
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/quizzes/:id', (req, res) => {
+  try {
+    const quizId = parseInt(req.params.id);
+    const deleted = quizzes.delete(quizId, req.user.userId);
+    if (!deleted) return res.status(403).json({ error: 'Không thể xóa Quiz này' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Vocabulary Quiz Routes ---
+
 app.post('/api/quizzes/vocabulary', (req, res) => {
   try {
-    const { title, description, vocab_lang, meaning_lang, words } = req.body;
+    const { title, description, vocab_lang, meaning_lang, words, visibility = 'private' } = req.body;
     if (!title || !words || !words.length) {
       return res.status(400).json({ error: 'Title and words are required' });
     }
     const code = generateUniqueCode();
-    const quizId = quizzes.create(code, title, description || '', 'vocabulary', vocab_lang, meaning_lang);
+    const quizId = quizzes.create(req.user.userId, code, title, description || '', 'vocabulary', vocab_lang, meaning_lang, visibility);
     
-    // Generate questions from words
     const generatedQuestions = generateQuestionsFromVocab(words);
     bulkInsertQuestions(quizId, generatedQuestions);
     
@@ -218,16 +370,16 @@ app.post('/api/quizzes/vocabulary', (req, res) => {
 app.put('/api/quizzes/:id/vocabulary', (req, res) => {
   try {
     const quizId = parseInt(req.params.id);
-    const { title, description, vocab_lang, meaning_lang, words } = req.body;
+    const { title, description, vocab_lang, meaning_lang, words, visibility = 'private' } = req.body;
     const quiz = quizzes.getById(quizId);
-    if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
+    if (!quiz || Number(quiz.user_id) !== Number(req.user.userId)) {
+      return res.status(403).json({ error: 'Bạn không có quyền sửa Quiz này' });
+    }
     
-    quizzes.update(quizId, title || quiz.title, description ?? quiz.description, 'vocabulary', vocab_lang, meaning_lang);
+    quizzes.update(quizId, req.user.userId, title || quiz.title, description ?? quiz.description, 'vocabulary', vocab_lang, meaning_lang, visibility);
     
-    // Replace all questions
     questions.deleteByQuizId(quizId);
     
-    // Generate questions from words
     if (words && words.length > 0) {
       const generatedQuestions = generateQuestionsFromVocab(words);
       bulkInsertQuestions(quizId, generatedQuestions);
@@ -341,16 +493,14 @@ app.post('/api/quizzes/wrong-words/add', (req, res) => {
       return res.status(400).json({ error: 'Word and meaning cannot be empty' });
     }
 
-    // Find the pinned quiz "Các từ sai/hay quên"
-    let wrongQuiz = quizzes.getAll().find(q => q.is_pinned === 1 || q.code === 'WRONG0' || q.title === 'Các từ sai/hay quên');
+    ensureWrongQuizForUser(req.user.userId);
+    const userQuizzes = quizzes.getAllForUser(req.user.userId);
+    let wrongQuiz = userQuizzes.find(q => q.is_pinned === 1 || q.title === 'Các từ sai/hay quên');
+
     if (!wrongQuiz) {
-      const code = 'WRONG0';
-      const quizId = quizzes.create(code, 'Các từ sai/hay quên', 'Danh sách các từ vựng bạn đã trả lời sai hoặc bấm Không nhớ', 'vocabulary', 'en', 'vi');
-      runSql('UPDATE quizzes SET is_pinned = 1 WHERE id = ?', [quizId]);
-      wrongQuiz = quizzes.getById(quizId);
+      return res.status(500).json({ error: 'Could not find wrong words quiz' });
     }
 
-    // Get current questions of wrongQuiz
     const qs = questions.getByQuizId(wrongQuiz.id);
     const wordMap = new Map();
 
@@ -398,84 +548,117 @@ app.post('/api/quizzes/wrong-words/add', (req, res) => {
   }
 });
 
-app.put('/api/quizzes/:id', (req, res) => {
+// ============ Community Hub APIs ============
+
+app.get('/api/community/quizzes', (req, res) => {
   try {
-    const { title, description } = req.body;
-    const quiz = quizzes.getById(parseInt(req.params.id));
-    if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
-    quizzes.update(parseInt(req.params.id), title || quiz.title, description ?? quiz.description);
-    const updated = quizzes.getById(parseInt(req.params.id));
-    res.json(updated);
+    const publicQuizzes = quizzes.getPublicQuizzes(req.query.q || '');
+    res.json(publicQuizzes);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/quizzes/:id', (req, res) => {
+app.post('/api/community/clone/:id', (req, res) => {
   try {
     const quizId = parseInt(req.params.id);
-    const quiz = quizzes.getById(quizId);
-    if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
-    if (quiz.is_pinned === 1 || quiz.code === 'WRONG0') {
-      return res.status(400).json({ error: 'Cannot delete pinned system quiz' });
+    const newQuizId = quizzes.cloneToUser(quizId, req.user.userId);
+    if (!newQuizId) {
+      return res.status(404).json({ error: 'Quiz không tồn tại để sao chép' });
     }
-    // Delete associated media files
-    const qs = questions.getByQuizId(quizId);
-    qs.forEach(q => {
-      if (q.image_path) {
-        const imgPath = path.join(__dirname, 'public', q.image_path);
-        if (fs.existsSync(imgPath)) fs.unlinkSync(imgPath);
-      }
-      if (q.audio_path) {
-        const audPath = path.join(__dirname, 'public', q.audio_path);
-        if (fs.existsSync(audPath)) fs.unlinkSync(audPath);
-      }
-    });
-    quizzes.delete(quizId);
+    res.json({ success: true, newQuizId, message: 'Đã tải Quiz về bộ sưu tập cá nhân' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============ Game Sessions APIs (Phiên chơi dở) ============
+
+app.get('/api/sessions/vocab', (req, res) => {
+  try {
+    const groups = sessions.getByUserGroupedByQuiz(req.user.userId);
+    res.json(groups);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/sessions/save', (req, res) => {
+  try {
+    const { quizId, qtype, sessionData } = req.body;
+    if (!quizId || !qtype || !sessionData) {
+      return res.status(400).json({ error: 'quizId, qtype, and sessionData are required' });
+    }
+    sessions.save(req.user.userId, parseInt(quizId), qtype, sessionData);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// --- Questions ---
+app.delete('/api/sessions/:id', (req, res) => {
+  try {
+    sessions.deleteById(parseInt(req.params.id), req.user.userId);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
-app.post('/api/quizzes/:id/questions', (req, res) => {
+app.delete('/api/sessions/quiz/:quizId/qtype/:qtype', (req, res) => {
+  try {
+    sessions.delete(req.user.userId, parseInt(req.params.quizId), req.params.qtype);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Question Management APIs ---
+
+app.post('/api/quizzes/:id/questions', uploadImage.single('image'), (req, res) => {
   try {
     const quizId = parseInt(req.params.id);
     const quiz = quizzes.getById(quizId);
-    if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
-    const { question_text, correct_answer, image_path, audio_path } = req.body;
-    if (!question_text || !correct_answer) {
-      return res.status(400).json({ error: 'question_text and correct_answer are required' });
+    if (!quiz || Number(quiz.user_id) !== Number(req.user.userId)) {
+      return res.status(403).json({ error: 'Bạn không có quyền chỉnh sửa' });
     }
+
+    const { question_text, correct_answer } = req.body;
+    if (!question_text || !correct_answer) {
+      return res.status(400).json({ error: 'Question text and correct answer are required' });
+    }
+
+    const imagePath = req.file ? `/uploads/images/${req.file.filename}` : null;
     const maxOrder = questions.getMaxOrder(quizId);
-    const orderIndex = (maxOrder ?? -1) + 1;
-    const questionId = questions.create(
-      quizId, question_text, correct_answer,
-      image_path || null, audio_path || null, orderIndex
-    );
-    const question = questions.getById(questionId);
+    const qId = questions.create(quizId, question_text, correct_answer, imagePath, null, maxOrder + 1);
+
+    const question = questions.getById(qId);
     res.status(201).json(question);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/questions/:id', (req, res) => {
+app.put('/api/questions/:id', uploadImage.single('image'), (req, res) => {
   try {
-    const questionId = parseInt(req.params.id);
-    const question = questions.getById(questionId);
-    if (!question) return res.status(404).json({ error: 'Question not found' });
-    const { question_text, correct_answer, image_path, audio_path } = req.body;
-    questions.update(
-      questionId,
-      question_text || question.question_text,
-      correct_answer || question.correct_answer,
-      image_path !== undefined ? image_path : question.image_path,
-      audio_path !== undefined ? audio_path : question.audio_path
-    );
-    const updated = questions.getById(questionId);
+    const qId = parseInt(req.params.id);
+    const existing = questions.getById(qId);
+    if (!existing) return res.status(404).json({ error: 'Question not found' });
+
+    const quiz = quizzes.getById(existing.quiz_id);
+    if (!quiz || Number(quiz.user_id) !== Number(req.user.userId)) {
+      return res.status(403).json({ error: 'Bạn không có quyền chỉnh sửa' });
+    }
+
+    const { question_text, correct_answer } = req.body;
+    let imagePath = existing.image_path;
+    if (req.file) {
+      imagePath = `/uploads/images/${req.file.filename}`;
+    }
+
+    questions.update(qId, question_text || existing.question_text, correct_answer || existing.correct_answer, imagePath, existing.audio_path);
+    const updated = questions.getById(qId);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -484,250 +667,47 @@ app.put('/api/questions/:id', (req, res) => {
 
 app.delete('/api/questions/:id', (req, res) => {
   try {
-    const questionId = parseInt(req.params.id);
-    const question = questions.getById(questionId);
-    if (!question) return res.status(404).json({ error: 'Question not found' });
-    if (question.image_path) {
-      const imgPath = path.join(__dirname, 'public', question.image_path);
-      if (fs.existsSync(imgPath)) fs.unlinkSync(imgPath);
+    const qId = parseInt(req.params.id);
+    const existing = questions.getById(qId);
+    if (!existing) return res.status(404).json({ error: 'Question not found' });
+
+    const quiz = quizzes.getById(existing.quiz_id);
+    if (!quiz || Number(quiz.user_id) !== Number(req.user.userId)) {
+      return res.status(403).json({ error: 'Bạn không có quyền xóa' });
     }
-    if (question.audio_path) {
-      const audPath = path.join(__dirname, 'public', question.audio_path);
-      if (fs.existsSync(audPath)) fs.unlinkSync(audPath);
-    }
-    questions.delete(questionId);
+
+    questions.delete(qId);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// --- File Upload ---
+// --- Excel Import API ---
 
-app.post('/api/upload/image', uploadImage.single('image'), (req, res) => {
+app.post('/api/quizzes/import', uploadExcel.single('file'), (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'No image file uploaded' });
-    const filePath = `/uploads/images/${req.file.filename}`;
-    res.json({ path: filePath, filename: req.file.filename });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    if (!req.file) return res.status(400).json({ error: 'Excel file is required' });
 
-app.post('/api/upload/audio', uploadAudio.single('audio'), (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ error: 'No audio file uploaded' });
-    const filePath = `/uploads/audio/${req.file.filename}`;
-    res.json({ path: filePath, filename: req.file.filename });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// --- Excel Export ---
-
-app.get('/api/export/template/question', (req, res) => {
-  const ws = XLSX.utils.aoa_to_sheet([
-    ['Question Text', 'Correct Answer'],
-    ['What is the capital of France?', 'Paris'],
-    ['1 + 1 = ?', '2'],
-    ['How many days in a week?', '7']
-  ]);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Template');
-  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-  res.setHeader('Content-Disposition', 'attachment; filename="question_template.xlsx"');
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.send(buffer);
-});
-
-app.get('/api/export/template/vocabulary', (req, res) => {
-  const ws = XLSX.utils.aoa_to_sheet([
-    ['Từ vựng (Word)', 'Nghĩa (Meaning)', 'Phiên âm (IPA)'],
-    ['Apple', 'Quả táo', '/ˈæp.əl/'],
-    ['Banana', 'Quả chuối', '/bəˈnæn.ə/'],
-    ['Cat', 'Con mèo', '/kæt/']
-  ]);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Template');
-  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-  res.setHeader('Content-Disposition', 'attachment; filename="vocabulary_template.xlsx"');
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.send(buffer);
-});
-
-app.get('/api/export/:id', (req, res) => {
-  try {
-    const quizId = parseInt(req.params.id);
-    const quiz = quizzes.getById(quizId);
-    if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
-    const qs = questions.getByQuizId(quizId);
-
-    let data;
-    if (quiz.quiz_type === 'vocabulary') {
-      // Reconstruct vocab list from questions
-      const vocabMap = new Map();
-      qs.forEach(q => {
-        if (q.question_type === 'fill_word_meaning') {
-          vocabMap.set(q.question_text, { word: q.question_text, meaning: q.correct_answer, ipa: q.ipa });
-        }
-      });
-      data = [['Từ vựng (Word)', 'Nghĩa (Meaning)', 'Phiên âm (IPA)']];
-      for (const v of vocabMap.values()) {
-        data.push([v.word, v.meaning, v.ipa || '']);
-      }
-    } else {
-      data = [['Question Text', 'Correct Answer']];
-      qs.forEach(q => {
-        data.push([q.question_text, q.correct_answer]);
-      });
-    }
-
-    const ws = XLSX.utils.aoa_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Quiz');
-    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    res.setHeader('Content-Disposition', `attachment; filename="quiz_${quiz.code}.xlsx"`);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.send(buffer);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// --- Excel Import ---
-
-app.post('/api/import', uploadExcel.single('excel'), (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ error: 'No Excel file uploaded' });
-
-    const mode = req.body.mode || 'question';
     const workbook = XLSX.readFile(req.file.path);
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
-    const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    const rows = XLSX.utils.sheet_to_json(sheet);
 
-    if (data.length < 2) {
-      return res.status(400).json({ error: 'Excel file must have at least a header row and one data row' });
+    if (!rows || rows.length === 0) {
+      return res.status(400).json({ error: 'Excel file is empty' });
     }
 
-    const header = data[0].map(h => String(h).trim().toLowerCase());
-    
-    let questionsList = [];
-    let vocabList = [];
-    
-    if (mode === 'vocabulary') {
-      let wCol = 0, mCol = 1, iCol = 2; // Default
-      for (let i = 1; i < data.length; i++) {
-        const row = data[i];
-        if (!row || !row[wCol]) continue;
-        const word = String(row[wCol]).trim();
-        const meaning = String(row[mCol] || '').trim();
-        const ipa = String(row[iCol] || '').trim();
-        if (word && meaning) {
-          vocabList.push({ word, meaning, ipa });
-        }
-      }
-      if (vocabList.length === 0) {
-        return res.status(400).json({ error: 'No valid vocabulary found in the Excel file' });
-      }
-      
-      const title = req.body.title || path.basename(req.file.originalname, path.extname(req.file.originalname));
-      const code = generateUniqueCode();
-      const vocabLang = req.body.vocab_lang || 'en';
-      const meaningLang = req.body.meaning_lang || 'vi';
-      const quizId = quizzes.create(code, title, req.body.description || '', 'vocabulary', vocabLang, meaningLang);
-      
-      const generatedQuestions = generateQuestionsFromVocab(vocabList);
-      bulkInsertQuestions(quizId, generatedQuestions);
-      
-      const quiz = quizzes.getById(quizId);
-      const qs = questions.getByQuizId(quizId);
-      fs.unlinkSync(req.file.path);
-      return res.status(201).json({ ...quiz, questions: qs, imported_count: vocabList.length });
-      
-    } else {
-      let qCol = header.findIndex(h => h.includes('question'));
-      let aCol = header.findIndex(h => h.includes('answer') || h.includes('correct'));
-      if (qCol === -1) qCol = 0;
-      if (aCol === -1) aCol = 1;
-
-      for (let i = 1; i < data.length; i++) {
-        const row = data[i];
-        if (!row || !row[qCol]) continue;
-        const questionText = String(row[qCol]).trim();
-        const correctAnswerRaw = String(row[aCol] || '').trim();
-        const correctAnswer = correctAnswerRaw.split(/\r?\n/).map(s => s.trim()).filter(s => s).join('/');
-        if (questionText && correctAnswer) {
-          questionsList.push({ question_text: questionText, correct_answer: correctAnswer });
-        }
-      }
-
-      if (questionsList.length === 0) {
-        return res.status(400).json({ error: 'No valid questions found in the Excel file' });
-      }
-
-      const title = req.body.title || path.basename(req.file.originalname, path.extname(req.file.originalname));
-      const code = generateUniqueCode();
-      const quizId = quizzes.create(code, title, req.body.description || '');
-      bulkInsertQuestions(quizId, questionsList);
-
-      const quiz = quizzes.getById(quizId);
-      const qs = questions.getByQuizId(quizId);
-      fs.unlinkSync(req.file.path);
-      return res.status(201).json({ ...quiz, questions: qs, imported_count: questionsList.length });
-    }
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/import/preview', uploadExcel.single('excel'), (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ error: 'No Excel file uploaded' });
-
-    const mode = req.body.mode || 'question';
-    const workbook = XLSX.readFile(req.file.path);
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-
-    fs.unlinkSync(req.file.path);
-
-    if (data.length < 2) {
-      return res.status(400).json({ error: 'Excel file must have at least a header row and one data row' });
-    }
-
-    const header = data[0].map(h => String(h).trim().toLowerCase());
     const preview = [];
-    
-    if (mode === 'vocabulary') {
-      let wCol = 0, mCol = 1, iCol = 2; // Default
-      for (let i = 1; i < data.length; i++) {
-        const row = data[i];
-        if (!row || !row[wCol]) continue;
-        const word = String(row[wCol]).trim();
-        const meaning = String(row[mCol] || '').trim();
-        const ipa = String(row[iCol] || '').trim();
-        if (word && meaning) {
-          preview.push({ word, meaning, ipa });
-        }
-      }
-    } else {
-      let qCol = header.findIndex(h => h.includes('question'));
-      let aCol = header.findIndex(h => h.includes('answer') || h.includes('correct'));
-      if (qCol === -1) qCol = 0;
-      if (aCol === -1) aCol = 1;
+    for (const row of rows) {
+      const qText = row['Câu hỏi'] || row['Question'] || row['câu hỏi'] || row['question'] || '';
+      const cAns = row['Đáp án'] || row['Answer'] || row['đáp án'] || row['answer'] || row['Đáp án đúng'] || '';
 
-      for (let i = 1; i < data.length; i++) {
-        const row = data[i];
-        if (!row || !row[qCol]) continue;
-        const questionText = String(row[qCol]).trim();
-        const correctAnswerRaw = String(row[aCol] || '').trim();
-        const correctAnswer = correctAnswerRaw.split(/\r?\n/).map(s => s.trim()).filter(s => s).join('/');
-        if (questionText && correctAnswer) {
-          preview.push({ question_text: questionText, correct_answer: correctAnswer });
-        }
+      if (qText && cAns) {
+        preview.push({
+          question_text: String(qText).trim(),
+          correct_answer: String(cAns).trim()
+        });
       }
     }
 
@@ -737,12 +717,54 @@ app.post('/api/import/preview', uploadExcel.single('excel'), (req, res) => {
   }
 });
 
-// Catch-all: serve index.html for SPA routing
+// --- TTS Proxy Endpoint ---
+
+app.get('/api/tts', async (req, res) => {
+  try {
+    const text = req.query.text || '';
+    const lang = req.query.lang || 'en';
+
+    if (!text) {
+      return res.status(400).send('Text parameter is required');
+    }
+
+    const cleanText = String(text).replace(/<[^>]*>/g, '').trim().substring(0, 200);
+    
+    let gLang = String(lang).toLowerCase().trim();
+    if (gLang === 'zh') gLang = 'zh-CN';
+    else if (gLang.includes('-')) gLang = gLang.split('-')[0];
+
+    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=${gLang}&client=tw-ob`;
+
+    const response = await fetch(ttsUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    });
+
+    if (!response.ok) {
+      return res.status(500).send('TTS upstream error');
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    res.set('Content-Type', 'audio/mpeg');
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(buffer);
+  } catch (err) {
+    console.error('TTS proxy error:', err);
+    res.status(500).send('TTS proxy error');
+  }
+});
+
+// Catch-all SPA
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Error handling middleware
+// Error Handling Middleware
 app.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     return res.status(400).json({ error: `Upload error: ${err.message}` });
@@ -753,16 +775,14 @@ app.use((err, req, res, next) => {
   next();
 });
 
-// Start server after database initialization
+// Start Server
 async function start() {
   try {
     await initDatabase();
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`\n🚀 Quiz App is running!`);
       console.log(`   Local:    http://localhost:${PORT}`);
-      console.log(`   Network:  http://0.0.0.0:${PORT}`);
-      console.log(`\n   Share your quiz with others by sharing your IP address!`);
-      console.log(`   They can access at: http://YOUR_IP:${PORT}\n`);
+      console.log(`   Network:  http://0.0.0.0:${PORT}\n`);
     });
   } catch (err) {
     console.error('Failed to start server:', err);

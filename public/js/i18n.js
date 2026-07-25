@@ -11,6 +11,8 @@ const I18n = (() => {
       'nav.play': 'Chơi Quiz',
       'nav.create': 'Tạo Quiz',
       'nav.import': 'Import',
+      'nav.community': 'Cộng đồng chia sẻ',
+      'nav.sessions': 'Phiên chơi',
       'nav.settings': 'Cài đặt',
       'nav.enterCode': 'Nhập mã Quiz',
 
@@ -82,6 +84,15 @@ const I18n = (() => {
       'settings.language': 'Ngôn ngữ',
       'settings.langLabel': 'Ngôn ngữ giao diện',
       'settings.langDesc': 'Chọn ngôn ngữ hiển thị cho ứng dụng',
+      'settings.appearance': 'Giao diện',
+      'settings.themeLabel': 'Chế độ giao diện',
+      'settings.themeDesc': 'Chọn giao diện Sáng hoặc Tối cho ứng dụng',
+      'settings.themeDark': 'Giao diện Tối (Dark Mode)',
+      'settings.themeLight': 'Giao diện Sáng (Light Mode)',
+      'settings.audio': 'Âm thanh & Phát âm',
+      'settings.volumeLabel': 'Âm lượng đọc từ',
+      'settings.volumeDesc': 'Điều chỉnh mức âm lượng khi nghe đọc từ vựng',
+      'settings.testVolume': 'Thử giọng đọc',
 
       // Quiz Code
       'code.title': 'Nhập mã Quiz',
@@ -305,6 +316,15 @@ const I18n = (() => {
       'settings.language': 'Language',
       'settings.langLabel': 'Interface Language',
       'settings.langDesc': 'Choose the display language for the app',
+      'settings.appearance': 'Appearance',
+      'settings.themeLabel': 'Theme Mode',
+      'settings.themeDesc': 'Choose Light or Dark theme for the app',
+      'settings.themeDark': 'Dark Theme (Dark Mode)',
+      'settings.themeLight': 'Light Theme (Light Mode)',
+      'settings.audio': 'Audio & Speech',
+      'settings.volumeLabel': 'TTS Speech Volume',
+      'settings.volumeDesc': 'Adjust the audio volume level when listening to words',
+      'settings.testVolume': 'Test Sound',
 
       // Quiz Code
       'code.title': 'Enter Quiz Code',
