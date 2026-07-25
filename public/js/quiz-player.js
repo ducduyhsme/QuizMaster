@@ -106,6 +106,65 @@ const QuizPlayer = (() => {
     }
   }
 
+  function attachWordMetadataToQuestions(questions) {
+    if (!questions || questions.length === 0) return;
+    const wordMap = new Map();
+    questions.forEach(q => {
+      let w = '', m = '', ipa = q.ipa || '';
+      if (q.question_type === 'fill_word_meaning' || q.question_type === 'mcq_word_meaning') {
+        w = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
+        m = (q.correct_answer || '').trim();
+      } else if (q.question_type === 'fill_meaning_word' || q.question_type === 'mcq_meaning_word') {
+        w = (q.correct_answer || '').trim();
+        m = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
+      }
+      if (w && m) {
+        wordMap.set(w.toLowerCase(), { word: w, meaning: m, ipa });
+        wordMap.set(m.toLowerCase(), { word: w, meaning: m, ipa });
+      }
+    });
+
+    questions.forEach(q => {
+      let cleanText = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
+      let ans = (q.correct_answer || '').trim();
+      let match = wordMap.get(cleanText.toLowerCase()) || wordMap.get(ans.toLowerCase());
+
+      if (match) {
+        q._word = match.word;
+        q._meaning = match.meaning;
+        q._ipa = match.ipa || q.ipa || '';
+      } else {
+        if (q.question_type && q.question_type.endsWith('_meaning')) {
+          q._word = cleanText;
+          q._meaning = ans;
+        } else if (q.question_type && q.question_type.endsWith('_word')) {
+          q._word = ans;
+          q._meaning = cleanText;
+        } else {
+          q._word = cleanText;
+          q._meaning = ans;
+        }
+        q._ipa = q.ipa || '';
+      }
+    });
+  }
+
+  function addWrongWord(word, meaning, ipa) {
+    if (!word || !meaning) return;
+    if (currentQuiz && (currentQuiz.code === 'WRONG0' || currentQuiz.is_pinned === 1 || currentQuiz.title === 'Các từ sai/hay quên')) {
+      return;
+    }
+    fetch('/api/quizzes/wrong-words/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ word, meaning, ipa })
+    }).then(res => res.json()).then(() => {
+      cachedPlayQuizzes = null;
+    }).catch(err => {
+      console.warn('Could not save wrong word:', err);
+    });
+  }
+
   function renderFilteredPlayQuizList() {
     const container = document.getElementById('play-quiz-list');
     if (!container || !cachedPlayQuizzes) return;
@@ -124,6 +183,7 @@ const QuizPlayer = (() => {
     }
 
     container.innerHTML = filtered.map(q => {
+      const isPinned = q.is_pinned === 1 || q.code === 'WRONG0';
       const saved = getSavedProgress(q.id);
       const savedQueue = saved ? (saved.queue || saved.questionsQueue || []) : [];
       const hasSaved = saved && savedQueue.length > 0 && (saved.currentIndex || 0) < savedQueue.length;
@@ -131,20 +191,29 @@ const QuizPlayer = (() => {
         ? `<span class="resume-badge" style="display: inline-block; margin-top: 4px; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">💾 ${I18n.t('resume.badge', { current: Math.min((saved.currentIndex || 0) + 1, savedQueue.length), total: savedQueue.length })}</span>`
         : '';
 
+      const pinnedStyle = isPinned ? 'border: 1px solid rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.05);' : '';
+      const pinnedBadge = isPinned ? `<span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 700; margin-left: 6px;">📌 ${I18n.t('quiz.pinned')}</span>` : '';
+
       return `
-        <div class="card" style="margin-bottom: 12px; cursor: pointer; display: flex; align-items: center; justify-content: space-between;"
+        <div class="card ${isPinned ? 'pinned-card' : ''}" style="margin-bottom: 12px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; ${pinnedStyle}"
              onclick="QuizPlayer.startQuiz(${q.id})">
           <div>
-            <h3 style="font-size: 17px; font-weight: 700; margin-bottom: 4px;">${Components.escapeHtml(q.title)}</h3>
+            <h3 style="font-size: 17px; font-weight: 700; margin-bottom: 4px;">
+              ${Components.escapeHtml(q.title)} ${pinnedBadge}
+            </h3>
             <span class="text-muted" style="font-size: 13px;">
               ${q.question_count || 0} ${I18n.t('table.questions').toLowerCase()} · 
               <span class="code-badge" style="font-size: 12px;">${q.code}</span>
             </span>
             ${savedBadge ? `<div>${savedBadge}</div>` : ''}
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button class="btn btn-ghost" onclick="event.stopPropagation(); App.editQuiz(${q.id}, '${q.quiz_type || 'question'}')" title="${I18n.t('common.edit')}" style="padding: 8px 12px; font-size: 14px;">
+              ✏️ ${I18n.t('common.edit')}
+            </button>
+            <button class="btn btn-primary" onclick="event.stopPropagation(); QuizPlayer.startQuiz(${q.id})">
+              ${hasSaved ? '▶ ' + I18n.t('resume.continue') : '▶ ' + I18n.t('play.start')}
+            </button>
           </div>
-          <button class="btn btn-primary" onclick="event.stopPropagation(); QuizPlayer.startQuiz(${q.id})">
-            ${hasSaved ? '▶ ' + I18n.t('resume.continue') : '▶ ' + I18n.t('play.start')}
-          </button>
         </div>
       `;
     }).join('');
@@ -270,6 +339,11 @@ const QuizPlayer = (() => {
       results = saved.results || [];
       usedAnswers = saved.usedAnswers || {};
 
+      attachWordMetadataToQuestions(questionsQueue);
+      if (allVocabQuestions && allVocabQuestions.length > 0) {
+        attachWordMetadataToQuestions(allVocabQuestions);
+      }
+
       Components.showToast('✅ ' + I18n.t('resume.savedNotice'), 'success');
       renderQuestion();
     } catch (err) {
@@ -351,11 +425,14 @@ const QuizPlayer = (() => {
         if (selectedQuestionType !== 'all') {
           questionsQueue = questionsQueue.filter(q => q.question_type === selectedQuestionType);
         }
+        attachWordMetadataToQuestions(allVocabQuestions);
       } else {
         allVocabQuestions = [];
         cachedTypeCounts = null;
         selectedQuestionType = 'all';
       }
+
+      attachWordMetadataToQuestions(questionsQueue);
 
       currentIndex = 0;
       results = [];
@@ -469,6 +546,13 @@ const QuizPlayer = (() => {
 
     // Build Answer HTML
     let answerInputHTML = '';
+    const showDontRemember = currentQuiz.quiz_type === 'vocabulary';
+    const dontRememberBtnHTML = showDontRemember ? `
+      <button class="dont-remember-btn" id="dont-remember-btn" onclick="QuizPlayer.handleDontRemember()">
+        ❓ ${I18n.t('play.dontRemember')}
+      </button>
+    ` : '';
+
     if (isMcq) {
       answerInputHTML = `
         <div class="mcq-options" id="mcq-options-container">
@@ -478,6 +562,11 @@ const QuizPlayer = (() => {
             </button>
           `).join('')}
         </div>
+        ${showDontRemember ? `
+          <div style="display: flex; justify-content: flex-end; margin-top: 12px;">
+            ${dontRememberBtnHTML}
+          </div>
+        ` : ''}
       `;
     } else {
       const placeholderText = (currentQuiz.quiz_type === 'vocabulary' && q.question_type)
@@ -493,6 +582,7 @@ const QuizPlayer = (() => {
           <button class="answer-submit-btn" id="submit-btn" onclick="QuizPlayer.submitAnswer()">
             ${I18n.t('play.submit')}
           </button>
+          ${dontRememberBtnHTML}
         </div>
       `;
     }
@@ -774,6 +864,13 @@ const QuizPlayer = (() => {
       }
     } else {
       // Incorrect
+      const dontRememberBtn = document.getElementById('dont-remember-btn');
+      if (dontRememberBtn) dontRememberBtn.style.display = 'none';
+
+      if (q._word && q._meaning) {
+        addWrongWord(q._word, q._meaning, q._ipa);
+      }
+
       const currentFailures = q._failedTries || 0;
       let willRetry = false;
       
@@ -843,16 +940,103 @@ const QuizPlayer = (() => {
           : I18n.t('play.finish') + ' 🎉';
         submitBtn.onclick = proceedFunc;
       } else {
-        // If it's MCQ, auto-advance on incorrect too? Or wait for click?
-        // Let's add a "Next" button for MCQ since there's no input form.
-        feedback.innerHTML += `<br><button class="btn btn-danger mt-2" onclick="document.getElementById('hidden-next-btn').click()">${I18n.t('play.next')} →</button>`;
-        // create a hidden button to attach the proceedFunc
+        feedback.innerHTML += `<br><button class="btn btn-danger mt-2" onclick="document.getElementById('hidden-next-btn').click()">${(currentIndex < questionsQueue.length - 1 || willRetry) ? I18n.t('play.next') + ' →' : I18n.t('play.finish') + ' 🎉'}</button>`;
         const hiddenBtn = document.createElement('button');
         hiddenBtn.id = 'hidden-next-btn';
         hiddenBtn.style.display = 'none';
         hiddenBtn.onclick = proceedFunc;
         feedback.appendChild(hiddenBtn);
       }
+    }
+  }
+
+  function handleDontRemember() {
+    if (answered) return;
+    answered = true;
+
+    const dontRememberBtn = document.getElementById('dont-remember-btn');
+    if (dontRememberBtn) dontRememberBtn.style.display = 'none';
+
+    const q = questionsQueue[currentIndex];
+    const isMcq = q.question_type && q.question_type.startsWith('mcq_');
+    const feedback = document.getElementById('answer-feedback');
+    let submitBtn = document.getElementById('submit-btn');
+    let input = document.getElementById('answer-input');
+
+    if (q._word && q._meaning) {
+      addWrongWord(q._word, q._meaning, q._ipa);
+    }
+
+    const currentFailures = q._failedTries || 0;
+    let willRetry = false;
+    
+    if (settings.maxRetries === -1 || currentFailures < settings.maxRetries) {
+      willRetry = true;
+      const retryQ = { ...q, _failedTries: currentFailures + 1 };
+      const insertIndex = currentIndex + 1 + 7;
+      if (insertIndex >= questionsQueue.length) {
+        questionsQueue.push(retryQ);
+      } else {
+        questionsQueue.splice(insertIndex, 0, retryQ);
+      }
+    } else {
+      q._finalFailure = true;
+    }
+
+    currentRetries = currentFailures + 1;
+    const retryCountEl = document.getElementById('retry-count');
+    if (retryCountEl) retryCountEl.textContent = currentRetries;
+
+    if (input) {
+      input.style.borderColor = '';
+      input.classList.add('incorrect');
+      input.classList.remove('correct');
+    }
+
+    // Show correct answer
+    feedback.style.color = '';
+    const displayAnswer = q.correct_answer.includes('/')
+      ? q.correct_answer.split('/').join(' / ')
+      : q.correct_answer;
+
+    feedback.className = 'answer-feedback show incorrect';
+    feedback.innerHTML = I18n.t('play.dontRememberFeedback', { answer: `<strong>${Components.escapeHtml(displayAnswer)}</strong>` });
+
+    if (isMcq) {
+      document.querySelectorAll('.mcq-option').forEach(el => {
+        el.disabled = true;
+        if (checkAnswer(el.textContent.trim(), q.correct_answer)) {
+          el.classList.add('correct');
+        }
+      });
+    }
+
+    const proceedFunc = () => {
+      if (!willRetry) {
+        results.push({
+          question: q,
+          userAnswer: I18n.t('play.dontRememberLabel'),
+          isCorrect: false,
+          retries: currentRetries,
+        });
+      }
+      currentIndex++;
+      renderQuestion();
+    };
+
+    if (submitBtn) {
+      submitBtn.textContent = (currentIndex < questionsQueue.length - 1 || willRetry)
+        ? I18n.t('play.next') + ' →'
+        : I18n.t('play.finish') + ' 🎉';
+      submitBtn.onclick = proceedFunc;
+      submitBtn.style.display = 'inline-block';
+    } else {
+      feedback.innerHTML += `<br><button class="btn btn-primary mt-2" onclick="document.getElementById('hidden-next-btn').click()">${(currentIndex < questionsQueue.length - 1 || willRetry) ? I18n.t('play.next') + ' →' : I18n.t('play.finish') + ' 🎉'}</button>`;
+      const hiddenBtn = document.createElement('button');
+      hiddenBtn.id = 'hidden-next-btn';
+      hiddenBtn.style.display = 'none';
+      hiddenBtn.onclick = proceedFunc;
+      feedback.appendChild(hiddenBtn);
     }
   }
 
@@ -1058,5 +1242,6 @@ const QuizPlayer = (() => {
     playTTS,
     filterResults,
     filterByQuestionType,
+    handleDontRemember,
   };
 })();

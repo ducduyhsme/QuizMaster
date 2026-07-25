@@ -36,6 +36,7 @@ async function initDatabase() {
       quiz_type TEXT DEFAULT 'question',
       vocab_lang TEXT DEFAULT NULL,
       meaning_lang TEXT DEFAULT NULL,
+      is_pinned INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
@@ -46,8 +47,20 @@ async function initDatabase() {
     db.run("ALTER TABLE quizzes ADD COLUMN quiz_type TEXT DEFAULT 'question'");
     db.run("ALTER TABLE quizzes ADD COLUMN vocab_lang TEXT DEFAULT NULL");
     db.run("ALTER TABLE quizzes ADD COLUMN meaning_lang TEXT DEFAULT NULL");
+  } catch (e) {}
+
+  try {
+    db.run("ALTER TABLE quizzes ADD COLUMN is_pinned INTEGER DEFAULT 0");
+  } catch (e) {}
+
+  // Ensure "Các từ sai/hay quên" pinned quiz exists
+  try {
+    const existingWrongQuiz = queryOne("SELECT id FROM quizzes WHERE code = 'WRONG0' OR is_pinned = 1 OR title = 'Các từ sai/hay quên'");
+    if (!existingWrongQuiz) {
+      db.run("INSERT INTO quizzes (code, title, description, quiz_type, is_pinned) VALUES ('WRONG0', 'Các từ sai/hay quên', 'Danh sách các từ vựng bạn đã trả lời sai hoặc bấm Không nhớ', 'vocabulary', 1)");
+    }
   } catch (e) {
-    // Ignore if columns already exist
+    console.error('Error ensuring wrong words quiz exists:', e);
   }
 
   db.run(`
@@ -133,7 +146,7 @@ const quizzes = {
       SELECT q.*, 
              (SELECT COUNT(*) FROM questions qu WHERE qu.quiz_id = q.id) as question_count 
       FROM quizzes q 
-      ORDER BY q.created_at DESC
+      ORDER BY q.is_pinned DESC, q.created_at DESC
     `);
   },
 

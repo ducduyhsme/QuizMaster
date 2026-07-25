@@ -70,19 +70,25 @@ const Components = (() => {
         year: 'numeric', month: 'short', day: 'numeric'
       });
 
+      const isPinned = q.is_pinned === 1 || q.code === 'WRONG0';
+
       let actions = '';
       if (showPlay) actions += `<button class="btn btn-sm btn-primary" onclick="App.playQuiz(${q.id})" title="${I18n.t('common.play')}">▶</button>`;
       if (showEdit) actions += `<button class="btn btn-sm btn-ghost" onclick="App.editQuiz(${q.id}, '${q.quiz_type || 'question'}')" title="${I18n.t('common.edit')}">✏️</button>`;
       actions += `<a href="/api/export/${q.id}" class="btn btn-sm btn-ghost" title="${I18n.t('export.downloadExcel')}" download>📤</a>`;
-      if (showDelete) actions += `<button class="btn btn-sm btn-danger" onclick="App.deleteQuiz(${q.id}, '${q.title.replace(/'/g, "\\'")}')" title="${I18n.t('common.delete')}">🗑</button>`;
+      if (showDelete && !isPinned) actions += `<button class="btn btn-sm btn-danger" onclick="App.deleteQuiz(${q.id}, '${q.title.replace(/'/g, "\\'")}')" title="${I18n.t('common.delete')}">🗑</button>`;
 
       const typeBadge = q.quiz_type === 'vocabulary' 
         ? `<span class="quiz-type-badge">${I18n.t('dashboard.typeVocab')}</span>` 
         : `<span class="quiz-type-badge">${I18n.t('dashboard.typeQuestion')}</span>`;
 
+      const pinnedBadge = isPinned 
+        ? `<span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 700; margin-left: 6px;">📌 ${I18n.t('quiz.pinned')}</span>` 
+        : '';
+
       return `
-        <tr>
-          <td><strong>${escapeHtml(q.title)}</strong> ${typeBadge}</td>
+        <tr ${isPinned ? 'style="background: rgba(239, 68, 68, 0.04);"' : ''}>
+          <td><strong>${escapeHtml(q.title)}</strong> ${typeBadge} ${pinnedBadge}</td>
           <td>
             <span class="code-badge" onclick="App.copyCode('${q.code}')" title="Click to copy">
               ${q.code} 📋

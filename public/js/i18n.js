@@ -106,6 +106,10 @@ const I18n = (() => {
       'play.finish': 'Hoàn thành!',
       'play.typeHintLabel': 'Yêu cầu',
       'play.retryAttempt': 'Làm lại lần {count}',
+      'play.dontRemember': 'Không nhớ',
+      'play.dontRememberFeedback': '❓ Đã chọn Không nhớ! Đáp án đúng: {answer}',
+      'play.dontRememberLabel': 'Không nhớ',
+      'quiz.pinned': 'Ghim',
 
       // Results
       'results.title': '📊 Kết quả Quiz',
@@ -325,6 +329,10 @@ const I18n = (() => {
       'play.finish': 'Finish!',
       'play.typeHintLabel': 'Requirement',
       'play.retryAttempt': 'Retry #{count}',
+      'play.dontRemember': 'Don\'t remember',
+      'play.dontRememberFeedback': '❓ Selected Don\'t remember! Correct answer: {answer}',
+      'play.dontRememberLabel': 'Don\'t remember',
+      'quiz.pinned': 'Pinned',
 
       // Results
       'results.title': '📊 Quiz Results',

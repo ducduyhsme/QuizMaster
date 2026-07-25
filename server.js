@@ -326,6 +326,78 @@ function generateQuestionsFromVocab(words) {
   return filteredGenerated;
 }
 
+app.post('/api/quizzes/wrong-words/add', (req, res) => {
+  try {
+    const { word, meaning, ipa } = req.body;
+    if (!word || !meaning) {
+      return res.status(400).json({ error: 'Word and meaning are required' });
+    }
+
+    const cleanWord = String(word).trim();
+    const cleanMeaning = String(meaning).trim();
+    const cleanIpa = ipa ? String(ipa).trim() : '';
+
+    if (!cleanWord || !cleanMeaning) {
+      return res.status(400).json({ error: 'Word and meaning cannot be empty' });
+    }
+
+    // Find the pinned quiz "Các từ sai/hay quên"
+    let wrongQuiz = quizzes.getAll().find(q => q.is_pinned === 1 || q.code === 'WRONG0' || q.title === 'Các từ sai/hay quên');
+    if (!wrongQuiz) {
+      const code = 'WRONG0';
+      const quizId = quizzes.create(code, 'Các từ sai/hay quên', 'Danh sách các từ vựng bạn đã trả lời sai hoặc bấm Không nhớ', 'vocabulary', 'en', 'vi');
+      runSql('UPDATE quizzes SET is_pinned = 1 WHERE id = ?', [quizId]);
+      wrongQuiz = quizzes.getById(quizId);
+    }
+
+    // Get current questions of wrongQuiz
+    const qs = questions.getByQuizId(wrongQuiz.id);
+    const wordMap = new Map();
+
+    for (const q of qs) {
+      let w = '', m = '', p = q.ipa || '';
+      if (q.question_type === 'fill_word_meaning' || q.question_type === 'mcq_word_meaning') {
+        w = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
+        m = (q.correct_answer || '').trim();
+      } else if (q.question_type === 'fill_meaning_word' || q.question_type === 'mcq_meaning_word') {
+        w = (q.correct_answer || '').trim();
+        m = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
+      }
+      if (w && m) {
+        const key = w.toLowerCase() + ':::' + m.toLowerCase();
+        if (!wordMap.has(key)) {
+          wordMap.set(key, { word: w, meaning: m, ipa: p });
+        } else if (p && !wordMap.get(key).ipa) {
+          wordMap.get(key).ipa = p;
+        }
+      }
+    }
+
+    const targetKey = cleanWord.toLowerCase() + ':::' + cleanMeaning.toLowerCase();
+    let updated = false;
+
+    if (!wordMap.has(targetKey)) {
+      wordMap.set(targetKey, { word: cleanWord, meaning: cleanMeaning, ipa: cleanIpa });
+      updated = true;
+    } else if (cleanIpa && !wordMap.get(targetKey).ipa) {
+      wordMap.get(targetKey).ipa = cleanIpa;
+      updated = true;
+    }
+
+    if (updated) {
+      const allWords = Array.from(wordMap.values());
+      const newQuestions = generateQuestionsFromVocab(allWords);
+      questions.deleteByQuizId(wrongQuiz.id);
+      bulkInsertQuestions(wrongQuiz.id, newQuestions);
+      return res.json({ success: true, added: true, wordCount: allWords.length });
+    }
+
+    return res.json({ success: true, added: false, wordCount: wordMap.size });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.put('/api/quizzes/:id', (req, res) => {
   try {
     const { title, description } = req.body;
@@ -344,6 +416,9 @@ app.delete('/api/quizzes/:id', (req, res) => {
     const quizId = parseInt(req.params.id);
     const quiz = quizzes.getById(quizId);
     if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
+    if (quiz.is_pinned === 1 || quiz.code === 'WRONG0') {
+      return res.status(400).json({ error: 'Cannot delete pinned system quiz' });
+    }
     // Delete associated media files
     const qs = questions.getByQuizId(quizId);
     qs.forEach(q => {

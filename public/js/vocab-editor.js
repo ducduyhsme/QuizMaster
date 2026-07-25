@@ -30,8 +30,21 @@ const VocabEditor = (() => {
         // Reconstruct vocabList from questions
         const vocabMap = new Map();
         existingQuiz.questions.forEach(q => {
-          if (q.question_type === 'fill_word_meaning') {
-            vocabMap.set(q.question_text, { word: q.question_text, meaning: q.correct_answer, ipa: q.ipa });
+          let w = '', m = '', ipa = q.ipa || null;
+          if (q.question_type === 'fill_word_meaning' || q.question_type === 'mcq_word_meaning') {
+            w = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
+            m = (q.correct_answer || '').trim();
+          } else if (q.question_type === 'fill_meaning_word' || q.question_type === 'mcq_meaning_word') {
+            w = (q.correct_answer || '').trim();
+            m = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
+          }
+          if (w && m) {
+            const key = w.toLowerCase() + ':::' + m.toLowerCase();
+            if (!vocabMap.has(key)) {
+              vocabMap.set(key, { word: w, meaning: m, ipa });
+            } else if (ipa && !vocabMap.get(key).ipa) {
+              vocabMap.get(key).ipa = ipa;
+            }
           }
         });
         vocabList = Array.from(vocabMap.values()).map((v, i) => ({ id: `v_${Date.now()}_${i}`, ...v }));
