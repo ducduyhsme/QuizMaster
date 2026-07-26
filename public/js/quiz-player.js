@@ -32,8 +32,11 @@ const QuizPlayer = (() => {
     try {
       const lightweightQueue = questionsQueue.map(q => ({
         id: q.id,
-        _failedTries: q._failedTries,
-        question_type: q.question_type
+        question_text: q.question_text,
+        correct_answer: q.correct_answer,
+        question_type: q.question_type,
+        ipa: q.ipa || '',
+        _failedTries: q._failedTries || 0
       }));
 
       const lightweightResults = results.map(r => ({
@@ -130,8 +133,13 @@ const QuizPlayer = (() => {
   function setPlayMode(mode) {
     currentPlayMode = mode;
     localStorage.setItem('quizmaster-play-mode', mode);
-    document.getElementById('play-mode-question-btn')?.classList.toggle('active', mode === 'question');
-    document.getElementById('play-mode-vocab-btn')?.classList.toggle('active', mode === 'vocabulary');
+    localStorage.setItem('quizmaster-dashboard-mode', mode);
+
+    const qBtn = document.getElementById('play-mode-question-btn');
+    const vBtn = document.getElementById('play-mode-vocab-btn');
+    if (qBtn) qBtn.className = `mode-btn ${mode === 'question' ? 'active' : ''}`;
+    if (vBtn) vBtn.className = `mode-btn ${mode === 'vocabulary' ? 'active' : ''}`;
+
     renderFilteredPlayQuizList();
   }
 
@@ -162,31 +170,39 @@ const QuizPlayer = (() => {
         m = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
       }
       if (w && m) {
-        wordMap.set(w.toLowerCase(), { word: w, meaning: m, ipa });
-        wordMap.set(m.toLowerCase(), { word: w, meaning: m, ipa });
+        const key = w.toLowerCase() + ':::' + m.toLowerCase();
+        if (!wordMap.has(key)) {
+          wordMap.set(key, { word: w, meaning: m, ipa });
+        } else if (ipa && !wordMap.get(key).ipa) {
+          wordMap.get(key).ipa = ipa;
+        }
       }
     });
 
     questions.forEach(q => {
-      let cleanText = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
-      let ans = (q.correct_answer || '').trim();
-      let match = wordMap.get(cleanText.toLowerCase()) || wordMap.get(ans.toLowerCase());
-
-      if (match) {
-        q._word = match.word;
-        q._meaning = match.meaning;
-        q._ipa = match.ipa || q.ipa || '';
-      } else {
-        if (q.question_type && q.question_type.endsWith('_meaning')) {
-          q._word = cleanText;
-          q._meaning = ans;
-        } else if (q.question_type && q.question_type.endsWith('_word')) {
-          q._word = ans;
-          q._meaning = cleanText;
+      let w = '', m = '';
+      if (q.question_type === 'fill_word_meaning' || q.question_type === 'mcq_word_meaning') {
+        w = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
+        m = (q.correct_answer || '').trim();
+      } else if (q.question_type === 'fill_meaning_word' || q.question_type === 'mcq_meaning_word') {
+        w = (q.correct_answer || '').trim();
+        m = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
+      }
+      if (w && m) {
+        const key = w.toLowerCase() + ':::' + m.toLowerCase();
+        const meta = wordMap.get(key);
+        if (meta) {
+          q._word = meta.word;
+          q._meaning = meta.meaning;
+          q._ipa = meta.ipa || q.ipa || '';
         } else {
-          q._word = cleanText;
-          q._meaning = ans;
+          q._word = w;
+          q._meaning = m;
+          q._ipa = q.ipa || '';
         }
+      } else {
+        q._word = q.question_text || '';
+        q._meaning = q.correct_answer || '';
         q._ipa = q.ipa || '';
       }
     });
@@ -269,7 +285,7 @@ const QuizPlayer = (() => {
   }
 
   function showResumeModal(saved, quizId) {
-    const savedQueue = saved.queue || saved.questionsQueue || [];
+    const savedQueue = saved.queue || saved.questions || saved.questionsQueue || [];
     const total = savedQueue.length;
     const currentNum = Math.min((saved.currentIndex || 0) + 1, total);
     const correctCount = (saved.results || []).filter(r => r.isCorrect).length;
@@ -335,16 +351,13 @@ const QuizPlayer = (() => {
     return fullList;
   }
 
+  let isResuming = false;
+
   async function resumeQuiz(quizId, targetQtype = null, rawSessionData = null) {
+    if (isResuming) return;
+    isResuming = true;
     try {
       Components.closeModal();
-      if (window.location.hash !== `#play/${quizId}`) {
-        if (history.replaceState) {
-          history.replaceState(null, '', `#play/${quizId}`);
-        } else {
-          window.location.hash = `play/${quizId}`;
-        }
-      }
 
       let saved = rawSessionData;
       if (typeof saved === 'string') {
@@ -352,11 +365,12 @@ const QuizPlayer = (() => {
       }
 
       if (!saved) {
-        saved = getSavedProgress(quizId, targetQtype);
+        saved = getSavedProgress(quizId, targetQtype) || getSavedProgress(quizId);
       }
 
       if (!saved) {
-        startQuiz(quizId, true);
+        isResuming = false;
+        startQuiz(quizId, false);
         return;
       }
 
@@ -380,52 +394,131 @@ const QuizPlayer = (() => {
         maxRetries: parseInt(localStorage.getItem('quizmaster-max-retries') || '-1', 10),
       };
 
-      if (currentQuiz.quiz_type === 'vocabulary') {
-        allVocabQuestions = buildFullVocabQuestions(currentQuiz, settings);
-        cachedTypeCounts = null;
-      } else {
-        allVocabQuestions = [];
-        cachedTypeCounts = null;
-      }
-
-      let rawQuestions = [...currentQuiz.questions];
-      if (settings.swapQA) {
-        rawQuestions = rawQuestions.map(q => ({
-          ...q,
-          question_text: q.correct_answer.split('/').join(' / '),
-          correct_answer: q.question_text,
-        }));
-      }
-
-      const questionMap = new Map(rawQuestions.map(q => [q.id, q]));
-      const savedQueue = saved.queue || saved.questions || saved.questionsQueue || [];
-      questionsQueue = savedQueue.map(item => {
-        const fullQ = questionMap.get(item.id) || item;
-        return {
-          ...fullQ,
-          _failedTries: item._failedTries,
-          question_type: item.question_type || fullQ.question_type
-        };
-      });
-
-      currentIndex = saved.currentIndex !== undefined ? saved.currentIndex : (saved.currentQuestionIndex || 0);
       selectedQuestionType = effectiveQtype;
       results = saved.results || [];
       usedAnswers = saved.usedAnswers || {};
+
+      if (currentQuiz.quiz_type === 'vocabulary') {
+        allVocabQuestions = buildFullVocabQuestions(currentQuiz, settings);
+        cachedTypeCounts = null;
+
+        let targetPool = [...allVocabQuestions];
+        if (effectiveQtype && effectiveQtype !== 'all') {
+          targetPool = targetPool.filter(q => q.question_type === effectiveQtype);
+        }
+        if (targetPool.length === 0) {
+          targetPool = [...allVocabQuestions];
+        }
+
+        const savedQueue = saved.queue || saved.questions || saved.questionsQueue || [];
+        if (savedQueue.length > 0) {
+          const poolMapById = new Map(targetPool.map(q => [String(q.id), q]));
+          const poolMapByType = new Map();
+          targetPool.forEach(q => {
+            if (!poolMapByType.has(q.question_type)) poolMapByType.set(q.question_type, []);
+            poolMapByType.get(q.question_type).push(q);
+          });
+
+          const restored = [];
+          const usedIndices = new Set();
+
+          savedQueue.forEach((item, idx) => {
+            let matched = poolMapById.get(String(item.id));
+            if (!matched && item.question_type) {
+              const typeList = poolMapByType.get(item.question_type) || [];
+              matched = typeList.find((_, i) => !usedIndices.has(item.question_type + '_' + i));
+              if (matched) {
+                const matchedIdx = typeList.indexOf(matched);
+                usedIndices.add(item.question_type + '_' + matchedIdx);
+              }
+            }
+            if (!matched && idx < targetPool.length) {
+              matched = targetPool[idx];
+            }
+
+            if (matched) {
+              restored.push({
+                ...matched,
+                _failedTries: item._failedTries || 0
+              });
+            } else if (item.question_text) {
+              restored.push({ ...item });
+            }
+          });
+
+          questionsQueue = restored.length > 0 ? restored : targetPool;
+        } else {
+          questionsQueue = targetPool;
+        }
+      } else {
+        allVocabQuestions = [];
+        cachedTypeCounts = null;
+        let rawQuestions = [...currentQuiz.questions];
+        if (settings.swapQA) {
+          rawQuestions = rawQuestions.map(q => ({
+            ...q,
+            question_text: q.correct_answer.split('/').join(' / '),
+            correct_answer: q.question_text,
+          }));
+        }
+
+        const questionMap = new Map(rawQuestions.map(q => [String(q.id), q]));
+        const savedQueue = saved.queue || saved.questions || saved.questionsQueue || [];
+
+        if (savedQueue.length > 0) {
+          questionsQueue = savedQueue.map(item => {
+            const fullQ = questionMap.get(String(item.id)) || item;
+            return {
+              ...fullQ,
+              _failedTries: item._failedTries || 0
+            };
+          }).filter(q => q && q.question_text);
+        } else {
+          questionsQueue = rawQuestions;
+        }
+      }
+
+      if (!questionsQueue || questionsQueue.length === 0) {
+        throw new Error('Không có câu hỏi nào để khôi phục');
+      }
+
+      const rawIndex = saved.currentIndex !== undefined ? saved.currentIndex : (saved.currentQuestionIndex || 0);
+      
+      if (rawIndex >= questionsQueue.length) {
+        if (results.length >= questionsQueue.length) {
+          currentIndex = questionsQueue.length;
+        } else {
+          currentIndex = Math.max(0, questionsQueue.length - 1);
+        }
+      } else {
+        currentIndex = Math.max(0, rawIndex);
+      }
 
       attachWordMetadataToQuestions(questionsQueue);
       if (allVocabQuestions && allVocabQuestions.length > 0) {
         attachWordMetadataToQuestions(allVocabQuestions);
       }
 
+      if (window.location.hash !== `#play/${quizId}`) {
+        if (history.replaceState) {
+          history.replaceState(null, '', `#play/${quizId}`);
+        } else {
+          window.location.hash = `play/${quizId}`;
+        }
+      }
+
       Components.showToast('✅ ' + I18n.t('resume.savedNotice'), 'success');
       renderQuestion();
     } catch (err) {
-      startQuiz(quizId, true);
+      console.error('Error in resumeQuiz:', err);
+      Components.showToast(I18n.t('common.error') + ': ' + err.message, 'error');
+    } finally {
+      isResuming = false;
     }
   }
 
   async function startQuiz(quizId, forceNew = false, autoResume = false) {
+    if (isResuming) return;
     try {
       const saved = getSavedProgress(quizId);
       const savedQueue = saved ? (saved.queue || saved.questionsQueue || []) : [];
