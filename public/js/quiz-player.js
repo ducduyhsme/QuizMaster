@@ -1217,6 +1217,8 @@ const QuizPlayer = (() => {
 
   function renderResults() {
     clearSavedProgress(currentQuiz ? currentQuiz.id : null);
+    const quizTitle = currentQuiz ? currentQuiz.title : '';
+    const quizId = currentQuiz ? currentQuiz.id : 0;
     const total = results.length;
     const correct = results.filter(r => r.isCorrect).length;
     const incorrect = total - correct;
@@ -1235,9 +1237,9 @@ const QuizPlayer = (() => {
     const main = document.getElementById('main-content');
     main.innerHTML = `
       <div class="results-container">
-        <div class="page-header text-center">
+        <div class="page-header text-center" style="margin-bottom: 20px;">
           <h1>${I18n.t('results.title')}</h1>
-          <p style="font-size: 17px; color: var(--text-secondary);">${Components.escapeHtml(currentQuiz.title)}</p>
+          <p style="font-size: 16px; color: var(--text-secondary); margin-top: 4px;">${Components.escapeHtml(quizTitle)}</p>
         </div>
 
         <div class="score-ring-container">
@@ -1287,16 +1289,20 @@ const QuizPlayer = (() => {
           </div>
         </div>
 
-        <div class="btn-group" style="justify-content: center; margin-top: 24px;">
-          <button class="btn btn-primary btn-lg" onclick="QuizPlayer.startQuiz(${currentQuiz.id})">
-            🔄 ${I18n.t('results.playAgain')}
-          </button>
-          <button class="btn btn-ghost btn-lg" onclick="App.navigate('dashboard')">
-            ← ${I18n.t('results.backToList')}
-          </button>
+        <div class="fixed-bottom-bar">
+          <div class="fixed-bottom-bar-inner" style="max-width: 800px; justify-content: center; gap: 16px;">
+            <button class="btn btn-ghost btn-lg" style="flex: 1; max-width: 280px; font-weight: 600;" onclick="App.navigate('dashboard')">
+              ← ${I18n.t('results.backToList')}
+            </button>
+            ${quizId ? `<button class="btn btn-primary btn-lg" style="flex: 1; max-width: 280px; font-weight: 700; border-radius: 12px;" onclick="QuizPlayer.startQuiz(${quizId})">
+              🔄 ${I18n.t('results.playAgain')}
+            </button>` : ''}
+          </div>
         </div>
       </div>
     `;
+
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e) {}
 
     // Animate score ring
     setTimeout(() => {
