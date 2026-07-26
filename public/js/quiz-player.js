@@ -9,6 +9,7 @@ const QuizPlayer = (() => {
   let results = [];
   let currentRetries = 0;
   let answered = false;
+  let lastAnswerTime = 0;
   let settings = {};
   let usedAnswers = {};
   let allVocabQuestions = [];
@@ -21,15 +22,15 @@ const QuizPlayer = (() => {
   let saveProgressTimer = null;
 
   function saveProgress() {
-    if (!currentQuiz || !currentQuiz.id) return;
+    if (!currentQuiz || !currentQuiz.id) return Promise.resolve();
     if (saveProgressTimer) clearTimeout(saveProgressTimer);
 
-    const currentQ = questionsQueue[currentIndex];
-    const effectiveQtype = (selectedQuestionType && selectedQuestionType !== 'all')
-      ? selectedQuestionType
-      : (currentQ && currentQ.question_type ? currentQ.question_type : 'all');
+    const effectiveQtype = selectedQuestionType || 'all';
 
     try {
+      // If question was just answered, save progress at next question index
+      const indexToSave = answered ? Math.min(currentIndex + 1, questionsQueue.length) : currentIndex;
+
       const lightweightQueue = questionsQueue.map(q => ({
         id: q.id,
         question_text: q.question_text,
@@ -46,10 +47,16 @@ const QuizPlayer = (() => {
         retries: r.retries
       }));
 
+      const authToken = (window.Auth && Auth.getToken()) || localStorage.getItem('quizmaster-token') || null;
+      const currentUser = (window.Auth && Auth.getUser()) || null;
+      const currentUserId = currentUser ? currentUser.id : null;
+
       const progressData = {
         quizId: currentQuiz.id,
-        currentIndex,
-        currentQuestionIndex: currentIndex,
+        quizTitle: currentQuiz.title || '',
+        quizType: currentQuiz.quiz_type || '',
+        currentIndex: indexToSave,
+        currentQuestionIndex: indexToSave,
         questions: lightweightQueue,
         queue: lightweightQueue,
         selectedQuestionType: effectiveQtype,
@@ -58,25 +65,180 @@ const QuizPlayer = (() => {
         updatedAt: Date.now()
       };
 
-      localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id, JSON.stringify(progressData));
-      if (effectiveQtype && effectiveQtype !== 'all') {
-        localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id + '_' + effectiveQtype, JSON.stringify(progressData));
+      localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id + '_' + effectiveQtype, JSON.stringify(progressData));
+      if (effectiveQtype === 'all') {
+        localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id, JSON.stringify(progressData));
       }
 
-      // Always save active session to server DB so it appears in Phiên chơi
-      fetch('/api/sessions/save', {
+      const payload = JSON.stringify({
+        quizId: currentQuiz.id,
+        qtype: effectiveQtype,
+        sessionData: progressData,
+        token: authToken,
+        userId: currentUserId
+      });
+
+      // Use sendBeacon for guaranteed delivery during navigation
+      if (navigator.sendBeacon) {
+        try {
+          navigator.sendBeacon('/api/sessions/save', new Blob([payload], { type: 'application/json' }));
+        } catch (e) {}
+      }
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+        headers['x-session-token'] = authToken;
+      }
+
+      const savePromise = fetch('/api/sessions/save', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          quizId: currentQuiz.id,
-          qtype: effectiveQtype,
-          sessionData: progressData
-        })
+        headers,
+        body: payload,
+        keepalive: true
       }).catch(e => {
         console.warn('Unable to save session to server:', e);
       });
+
+      if (currentQuiz && currentQuiz.quiz_type === 'vocabulary') {
+        saveVocabPerQtypeProgress(authToken, currentUserId, headers);
+      }
+
+      return savePromise;
     } catch (e) {
       console.warn('Unable to save progress', e);
+      return Promise.resolve();
+    }
+  }
+
+  function saveVocabPerQtypeProgress(authToken, currentUserId, headers) {
+    if (!currentQuiz || currentQuiz.quiz_type !== 'vocabulary') return;
+    const pool = (allVocabQuestions && allVocabQuestions.length > 0) ? allVocabQuestions : questionsQueue;
+    if (!pool || pool.length === 0) return;
+    const activeAnsweredQuestion = answered ? questionsQueue[currentIndex] : null;
+    const activeAnsweredAlreadyInResults = activeAnsweredQuestion
+      ? results.some(r => r.question && String(r.question.id) === String(activeAnsweredQuestion.id) && r.question.question_type === activeAnsweredQuestion.question_type)
+      : false;
+
+    const qtypesPresent = new Set();
+    pool.forEach(q => {
+      if (q.question_type) qtypesPresent.add(q.question_type);
+    });
+
+    qtypesPresent.forEach(qtype => {
+      const qtypeQuestions = pool.filter(q => q.question_type === qtype);
+      if (qtypeQuestions.length === 0) return;
+
+      const qtypeResults = results.filter(r => r.question && r.question.question_type === qtype);
+      const activeAnsweredForQtype = activeAnsweredQuestion && activeAnsweredQuestion.question_type === qtype && !activeAnsweredAlreadyInResults;
+      if (qtypeResults.length === 0 && !activeAnsweredForQtype) return;
+
+      const qtypeIndexToSave = Math.min(qtypeResults.length + (activeAnsweredForQtype ? 1 : 0), qtypeQuestions.length);
+
+      const qtypeLightweightQueue = qtypeQuestions.map(q => ({
+        id: q.id,
+        question_text: q.question_text,
+        correct_answer: q.correct_answer,
+        question_type: q.question_type,
+        ipa: q.ipa || '',
+        _failedTries: q._failedTries || 0
+      }));
+
+      const qtypeProgressData = {
+        quizId: currentQuiz.id,
+        quizTitle: currentQuiz.title || '',
+        quizType: currentQuiz.quiz_type || '',
+        currentIndex: qtypeIndexToSave,
+        currentQuestionIndex: qtypeIndexToSave,
+        questions: qtypeLightweightQueue,
+        queue: qtypeLightweightQueue,
+        selectedQuestionType: qtype,
+        results: qtypeResults.map(r => ({
+          questionId: r.question?.id,
+          userAnswer: r.userAnswer,
+          isCorrect: r.isCorrect,
+          retries: r.retries
+        })),
+        usedAnswers,
+        updatedAt: Date.now()
+      };
+
+      localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id + '_' + qtype, JSON.stringify(qtypeProgressData));
+
+      const payload = JSON.stringify({
+        quizId: currentQuiz.id,
+        qtype: qtype,
+        sessionData: qtypeProgressData,
+        token: authToken,
+        userId: currentUserId
+      });
+
+      if (navigator.sendBeacon) {
+        try {
+          navigator.sendBeacon('/api/sessions/save', new Blob([payload], { type: 'application/json' }));
+        } catch (e) {}
+      }
+
+      fetch('/api/sessions/save', {
+        method: 'POST',
+        headers,
+        body: payload,
+        keepalive: true
+      }).catch(e => {});
+    });
+
+    if (selectedQuestionType && selectedQuestionType !== 'all') {
+      const allLightweightQueue = pool.map(q => ({
+        id: q.id,
+        question_text: q.question_text,
+        correct_answer: q.correct_answer,
+        question_type: q.question_type,
+        ipa: q.ipa || '',
+        _failedTries: q._failedTries || 0
+      }));
+      const allIndexToSave = Math.min(results.length + (activeAnsweredQuestion && !activeAnsweredAlreadyInResults ? 1 : 0), pool.length);
+      const allProgressData = {
+        quizId: currentQuiz.id,
+        quizTitle: currentQuiz.title || '',
+        quizType: currentQuiz.quiz_type || '',
+        currentIndex: allIndexToSave,
+        currentQuestionIndex: allIndexToSave,
+        questions: allLightweightQueue,
+        queue: allLightweightQueue,
+        selectedQuestionType: 'all',
+        results: results.map(r => ({
+          questionId: r.question?.id,
+          userAnswer: r.userAnswer,
+          isCorrect: r.isCorrect,
+          retries: r.retries
+        })),
+        usedAnswers,
+        updatedAt: Date.now()
+      };
+
+      localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id + '_all', JSON.stringify(allProgressData));
+      localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id, JSON.stringify(allProgressData));
+
+      const payloadAll = JSON.stringify({
+        quizId: currentQuiz.id,
+        qtype: 'all',
+        sessionData: allProgressData,
+        token: authToken,
+        userId: currentUserId
+      });
+
+      if (navigator.sendBeacon) {
+        try {
+          navigator.sendBeacon('/api/sessions/save', new Blob([payloadAll], { type: 'application/json' }));
+        } catch (e) {}
+      }
+
+      fetch('/api/sessions/save', {
+        method: 'POST',
+        headers,
+        body: payloadAll,
+        keepalive: true
+      }).catch(e => {});
     }
   }
 
@@ -84,28 +246,77 @@ const QuizPlayer = (() => {
     try {
       if (targetQtype && targetQtype !== 'all') {
         const qData = localStorage.getItem(PROGRESS_KEY_PREFIX + quizId + '_' + targetQtype);
-        if (qData) return JSON.parse(qData);
+        if (qData) {
+          try {
+            const parsed = JSON.parse(qData);
+            if (parsed) return parsed;
+          } catch (e) {}
+        }
       }
-      const data = localStorage.getItem(PROGRESS_KEY_PREFIX + quizId);
-      return data ? JSON.parse(data) : null;
+
+      if (targetQtype === 'all') {
+        const allData = localStorage.getItem(PROGRESS_KEY_PREFIX + quizId + '_all') || localStorage.getItem(PROGRESS_KEY_PREFIX + quizId);
+        if (allData) {
+          try {
+            const parsed = JSON.parse(allData);
+            if (parsed) return parsed;
+          } catch (e) {}
+        }
+      }
+
+      if (!targetQtype) {
+        let best = null;
+        const prefix = PROGRESS_KEY_PREFIX + quizId;
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith(prefix)) {
+            try {
+              const parsed = JSON.parse(localStorage.getItem(key));
+              if (parsed && (!best || (parsed.updatedAt || 0) > (best.updatedAt || 0))) {
+                best = parsed;
+              }
+            } catch (e) {}
+          }
+        }
+        return best;
+      }
+
+      return null;
     } catch (e) {
       return null;
     }
   }
 
-  function clearSavedProgress(quizId) {
+  // Attach global lifecycle event listeners so progress is saved when navigating away or closing window
+  window.addEventListener('beforeunload', () => saveProgress());
+  window.addEventListener('pagehide', () => saveProgress());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveProgress();
+  });
+  window.addEventListener('hashchange', () => saveProgress());
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.repeat && answered) {
+      if (Date.now() - lastAnswerTime < 150) return;
+      const submitBtn = document.getElementById('submit-btn');
+      if (submitBtn && typeof submitBtn.onclick === 'function') {
+        e.preventDefault();
+        submitBtn.onclick();
+      }
+    }
+  });
+
+  function clearSavedProgress(quizId, targetQtype = null) {
     if (!quizId) return;
     if (saveProgressTimer) clearTimeout(saveProgressTimer);
-    localStorage.removeItem(PROGRESS_KEY_PREFIX + quizId);
 
-    const effectiveQtype = (selectedQuestionType && selectedQuestionType !== 'all') 
-      ? selectedQuestionType 
-      : 'all';
+    const effectiveQtype = targetQtype || selectedQuestionType || 'all';
 
     localStorage.removeItem(PROGRESS_KEY_PREFIX + quizId + '_' + effectiveQtype);
+    if (effectiveQtype === 'all') {
+      localStorage.removeItem(PROGRESS_KEY_PREFIX + quizId);
+    }
 
     fetch(`/api/sessions/quiz/${quizId}/qtype/${effectiveQtype}`, { method: 'DELETE' }).catch(e => {});
-    fetch(`/api/sessions/quiz/${quizId}/qtype/all`, { method: 'DELETE' }).catch(e => {});
   }
 
   function renderSelectScreen() {
@@ -377,8 +588,10 @@ const QuizPlayer = (() => {
       const effectiveQtype = targetQtype || saved.selectedQuestionType || 'all';
 
       try {
-        localStorage.setItem(PROGRESS_KEY_PREFIX + quizId, JSON.stringify(saved));
-        if (effectiveQtype && effectiveQtype !== 'all') {
+        if (effectiveQtype === 'all') {
+          localStorage.setItem(PROGRESS_KEY_PREFIX + quizId, JSON.stringify(saved));
+        }
+        if (effectiveQtype) {
           localStorage.setItem(PROGRESS_KEY_PREFIX + quizId + '_' + effectiveQtype, JSON.stringify(saved));
         }
       } catch (e) {}
@@ -520,14 +733,26 @@ const QuizPlayer = (() => {
   async function startQuiz(quizId, forceNew = false, autoResume = false) {
     if (isResuming) return;
     try {
-      const saved = getSavedProgress(quizId);
+      let saved = getSavedProgress(quizId);
+      if (!saved && !forceNew) {
+        try {
+          const sRes = await fetch('/api/sessions');
+          if (sRes.ok) {
+            const userSessions = await sRes.json();
+            const quizGroup = userSessions.find(g => Number(g.quiz_id) === Number(quizId));
+            if (quizGroup && quizGroup.sessions && quizGroup.sessions.length > 0) {
+              const latestS = quizGroup.sessions[0];
+              if (latestS && latestS.session_data) {
+                saved = latestS.session_data;
+              }
+            }
+          }
+        } catch (e) {}
+      }
+
       const savedQueue = saved ? (saved.queue || saved.questionsQueue || []) : [];
       if (saved && !forceNew && savedQueue.length > 0 && (saved.currentIndex || 0) < savedQueue.length) {
-        if (autoResume) {
-          resumeQuiz(quizId);
-          return;
-        }
-        showResumeModal(saved, quizId);
+        resumeQuiz(quizId, saved.selectedQuestionType || 'all', saved);
         return;
       }
 
@@ -641,11 +866,11 @@ const QuizPlayer = (() => {
       return;
     }
 
-    saveProgress();
-
     const q = questionsQueue[currentIndex];
     currentRetries = q._failedTries || 0;
     answered = false;
+
+    saveProgress();
     const total = questionsQueue.length;
     const progress = ((currentIndex) / total) * 100;
 
@@ -749,7 +974,7 @@ const QuizPlayer = (() => {
           <input type="text" class="answer-input" id="answer-input" 
                  placeholder="${placeholderText}"
                  autocomplete="off" spellcheck="false"
-                 onkeydown="if(event.key==='Enter') QuizPlayer.submitAnswer()">
+                 onkeydown="if(event.key==='Enter' && !event.repeat){ event.preventDefault(); event.stopPropagation(); QuizPlayer.submitAnswer(); }">
           <button class="answer-submit-btn" id="submit-btn" onclick="QuizPlayer.submitAnswer()">
             ${I18n.t('play.submit')}
           </button>
@@ -1019,7 +1244,14 @@ const QuizPlayer = (() => {
   }
 
   function submitAnswer(overrideAnswer = null, btnEl = null) {
-    if (answered) return;
+    if (answered) {
+      if (Date.now() - lastAnswerTime < 150) return;
+      const submitBtn = document.getElementById('submit-btn');
+      if (submitBtn && typeof submitBtn.onclick === 'function') {
+        submitBtn.onclick();
+      }
+      return;
+    }
 
     let userAnswer = overrideAnswer;
     let input = document.getElementById('answer-input');
@@ -1064,6 +1296,17 @@ const QuizPlayer = (() => {
 
       // Correct!
       answered = true;
+      lastAnswerTime = Date.now();
+
+      results.push({
+        question: q,
+        userAnswer,
+        isCorrect: true,
+        retries: q._failedTries || 0,
+      });
+
+      saveProgress();
+
       if (input) {
         input.style.borderColor = '';
         input.classList.add('correct');
@@ -1079,12 +1322,6 @@ const QuizPlayer = (() => {
       feedback.textContent = I18n.t('play.correct');
       
       const proceedFunc = () => {
-        results.push({
-          question: q,
-          userAnswer,
-          isCorrect: true,
-          retries: q._failedTries || 0,
-        });
         currentIndex++;
         renderQuestion();
       };
@@ -1156,9 +1393,10 @@ const QuizPlayer = (() => {
 
       // Show correct answer
       feedback.style.color = '';
-      const displayAnswer = q.correct_answer.includes('/')
-        ? q.correct_answer.split('/').join(' / ')
-        : q.correct_answer;
+      const safeCorrectAnswer = String(q.correct_answer || '');
+      const displayAnswer = safeCorrectAnswer.includes('/')
+        ? safeCorrectAnswer.split('/').join(' / ')
+        : safeCorrectAnswer;
 
       feedback.className = 'answer-feedback show incorrect';
       feedback.innerHTML = I18n.t('play.incorrect', { answer: `<strong>${Components.escapeHtml(displayAnswer)}</strong>` });
@@ -1175,16 +1413,20 @@ const QuizPlayer = (() => {
 
       // Allow next attempt after showing answer
       answered = true;
+      lastAnswerTime = Date.now();
       
+      if (!willRetry) {
+        results.push({
+          question: q,
+          userAnswer,
+          isCorrect: false,
+          retries: currentRetries,
+        });
+      }
+
+      saveProgress();
+
       const proceedFunc = () => {
-        if (!willRetry) {
-          results.push({
-            question: q,
-            userAnswer,
-            isCorrect: false,
-            retries: currentRetries,
-          });
-        }
         currentIndex++;
         renderQuestion();
       };
@@ -1208,6 +1450,7 @@ const QuizPlayer = (() => {
   function handleDontRemember() {
     if (answered) return;
     answered = true;
+    lastAnswerTime = Date.now();
 
     const dontRememberBtn = document.getElementById('dont-remember-btn');
     if (dontRememberBtn) dontRememberBtn.style.display = 'none';
@@ -1250,9 +1493,10 @@ const QuizPlayer = (() => {
 
     // Show correct answer
     feedback.style.color = '';
-    const displayAnswer = q.correct_answer.includes('/')
-      ? q.correct_answer.split('/').join(' / ')
-      : q.correct_answer;
+    const safeCorrectAnswer = String(q.correct_answer || '');
+    const displayAnswer = safeCorrectAnswer.includes('/')
+      ? safeCorrectAnswer.split('/').join(' / ')
+      : safeCorrectAnswer;
 
     feedback.className = 'answer-feedback show incorrect';
     feedback.innerHTML = I18n.t('play.dontRememberFeedback', { answer: `<strong>${Components.escapeHtml(displayAnswer)}</strong>` });
@@ -1266,15 +1510,18 @@ const QuizPlayer = (() => {
       });
     }
 
+    if (!willRetry) {
+      results.push({
+        question: q,
+        userAnswer: I18n.t('play.dontRememberLabel'),
+        isCorrect: false,
+        retries: currentRetries,
+      });
+    }
+
+    saveProgress();
+
     const proceedFunc = () => {
-      if (!willRetry) {
-        results.push({
-          question: q,
-          userAnswer: I18n.t('play.dontRememberLabel'),
-          isCorrect: false,
-          retries: currentRetries,
-        });
-      }
       currentIndex++;
       renderQuestion();
     };
@@ -1296,14 +1543,15 @@ const QuizPlayer = (() => {
   }
 
   function checkAnswer(userAnswer, correctAnswer) {
-    const normalize = (str) => str.trim().toLowerCase()
+    if (!correctAnswer) return false;
+    const normalize = (str) => String(str || '').trim().toLowerCase()
       .normalize('NFC')
       .replace(/\s+/g, ' ');
 
     const userNorm = normalize(userAnswer);
 
     // Support multiple correct answers separated by /
-    const acceptedAnswers = correctAnswer.split('/').map(a => normalize(a));
+    const acceptedAnswers = String(correctAnswer).split('/').map(a => normalize(a));
 
     return acceptedAnswers.some(a => a === userNorm);
   }
@@ -1496,6 +1744,7 @@ const QuizPlayer = (() => {
     setPlayMode,
     startQuiz,
     resumeQuiz,
+    saveProgress,
     getSavedProgress,
     clearSavedProgress,
     submitAnswer,

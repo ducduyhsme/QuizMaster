@@ -806,9 +806,20 @@ body::before {
 }
 
 .answer-feedback.incorrect {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
   color: #f87171;
+}
+
+.answer-feedback.incorrect strong {
+  color: #ffffff;
+  background: rgba(239, 68, 68, 0.3);
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  font-weight: 700;
+  display: inline-block;
+  margin-left: 4px;
 }
 
 .retry-count {

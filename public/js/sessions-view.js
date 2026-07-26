@@ -19,12 +19,13 @@ const SessionsView = (() => {
   };
 
   function getQtypeName(qtype) {
+    if (qtype === 'all') return I18n.t('qtype.all');
     const mainType = I18n.t(`qtype.${qtype}`);
     const descType = I18n.t(`qtype.${qtype}_desc`);
-    if (mainType && descType && mainType !== `qtype.${qtype}`) {
+    if (mainType && descType && !mainType.startsWith('qtype.') && !descType.startsWith('qtype.')) {
       return `${descType} (${mainType})`;
     }
-    return QTYPE_NAMES[qtype] || qtype;
+    return QTYPE_NAMES[qtype] || (mainType && !mainType.startsWith('qtype.') ? mainType : qtype);
   }
 
   function getCollapsedSet() {
@@ -40,6 +41,69 @@ const SessionsView = (() => {
     try {
       localStorage.setItem('quizmaster-collapsed-sessions', JSON.stringify(Array.from(setObj)));
     } catch (e) {}
+  }
+
+  function mergeLocalProgressGroups(serverGroups) {
+    const groupsMap = new Map();
+    (serverGroups || []).forEach(group => {
+      groupsMap.set(Number(group.quiz_id), {
+        ...group,
+        sessions: [...(group.sessions || [])]
+      });
+    });
+
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith('quizmaster-progress-')) continue;
+
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key));
+        if (!parsed || !parsed.quizId) continue;
+
+        const quizId = Number(parsed.quizId);
+        let qtype = parsed.selectedQuestionType || 'all';
+        const prefix = 'quizmaster-progress-' + quizId;
+        if (key === prefix || key === prefix + '_all') {
+          qtype = 'all';
+        } else if (key.startsWith(prefix + '_')) {
+          qtype = key.substring(prefix.length + 1);
+        }
+
+        if (!groupsMap.has(quizId)) {
+          groupsMap.set(quizId, {
+            quiz_id: quizId,
+            quiz_title: parsed.quizTitle || `Quiz #${quizId}`,
+            quiz_code: '',
+            quiz_type: parsed.quizType || 'vocabulary',
+            sessions: []
+          });
+        }
+
+        const group = groupsMap.get(quizId);
+        const localIndex = parsed.currentIndex !== undefined ? parsed.currentIndex : (parsed.currentQuestionIndex || 0);
+        const localUpdatedAt = parsed.updatedAt || Date.now();
+        const existingIndex = group.sessions.findIndex(s => s.qtype === qtype);
+        const existing = existingIndex >= 0 ? group.sessions[existingIndex] : null;
+        const existingTime = existing ? (existing.updated_at ? new Date(existing.updated_at).getTime() : 0) : 0;
+
+        const localSession = {
+          session_id: existing ? existing.session_id : 0,
+          qtype,
+          updated_at: localUpdatedAt,
+          current_index: localIndex,
+          total_questions: parsed.queue ? parsed.queue.length : 1,
+          session_data: parsed
+        };
+
+        if (!existing) {
+          group.sessions.push(localSession);
+        } else if (localUpdatedAt >= existingTime) {
+          group.sessions[existingIndex] = localSession;
+        }
+      } catch (e) {}
+    }
+
+    return Array.from(groupsMap.values()).filter(g => g.sessions && g.sessions.length > 0);
   }
 
   async function render() {
@@ -62,7 +126,7 @@ const SessionsView = (() => {
     try {
       const res = await fetch('/api/sessions/vocab');
       if (!res.ok) throw new Error(I18n.t('common.error'));
-      const groups = await res.json();
+      const groups = mergeLocalProgressGroups(await res.json());
 
       if (!groups || groups.length === 0) {
         container.innerHTML = `
@@ -94,14 +158,62 @@ const SessionsView = (() => {
           ? `<span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #a855f7; border: 1px solid rgba(168, 85, 247, 0.3); padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; margin-left: 8px;">${I18n.t('sessions.modeVocab')}</span>`
           : `<span class="badge" style="background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; margin-left: 8px;">${I18n.t('sessions.modeQuestion')}</span>`;
 
-        const sessionItemsHTML = g.sessions.map(s => {
-          sessionDataStore.set(`${quizId}_${s.qtype}`, s.session_data);
+        // Collect all distinct session qtypes for this quiz from server & localStorage
+        const sessionsMap = new Map();
+        (g.sessions || []).forEach(s => {
+          sessionsMap.set(s.qtype, { ...s });
+        });
+
+        const prefix = 'quizmaster-progress-' + quizId;
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && (key === prefix || key.startsWith(prefix + '_'))) {
+            try {
+              const parsed = JSON.parse(localStorage.getItem(key));
+              if (parsed && Number(parsed.quizId) === Number(quizId)) {
+                let qtype = parsed.selectedQuestionType || 'all';
+                if (key === prefix + '_all' || key === prefix) {
+                  qtype = 'all';
+                } else if (key.startsWith(prefix + '_')) {
+                  qtype = key.substring(prefix.length + 1);
+                }
+
+                const localIndex = parsed.currentIndex !== undefined ? parsed.currentIndex : (parsed.currentQuestionIndex || 0);
+                const localUpdatedAt = parsed.updatedAt || Date.now();
+
+                const existing = sessionsMap.get(qtype);
+                const existingTime = existing ? (existing.updated_at ? new Date(existing.updated_at).getTime() : 0) : 0;
+                if (!existing || localUpdatedAt >= existingTime) {
+                  sessionsMap.set(qtype, {
+                    session_id: existing ? existing.session_id : 0,
+                    qtype: qtype,
+                    updated_at: localUpdatedAt,
+                    current_index: localIndex,
+                    total_questions: parsed.queue ? parsed.queue.length : 1,
+                    session_data: parsed
+                  });
+                }
+              }
+            } catch (e) {}
+          }
+        }
+
+        const allSessions = Array.from(sessionsMap.values());
+
+        const sessionItemsHTML = allSessions.map(s => {
+          let sData = s.session_data;
+          let sCurrentIndex = s.current_index;
+          let sUpdatedAt = typeof s.updated_at === 'number' ? s.updated_at : (s.updated_at ? new Date(s.updated_at).getTime() : Date.now());
+
+          sessionDataStore.set(`${quizId}_${s.qtype}`, sData);
 
           const qtypeName = getQtypeName(s.qtype);
-          const current = s.current_index + 1;
-          const total = s.total_questions || 1;
+          const current = sData && sData.currentIndex !== undefined
+            ? Math.max(0, sData.currentIndex)
+            : ((sData && Array.isArray(sData.results)) ? sData.results.length : Math.max(0, sCurrentIndex));
+          const total = (sData && sData.queue && sData.queue.length > 0) ? sData.queue.length : (s.total_questions || 1);
           const percent = Math.min(100, Math.round((current / total) * 100));
-          const timeStr = new Date(s.updated_at).toLocaleString(I18n.getLang() === 'vi' ? 'vi-VN' : 'en-US');
+          const timeStr = new Date(sUpdatedAt).toLocaleString(I18n.getLang() === 'vi' ? 'vi-VN' : 'en-US');
 
           return `
             <div class="session-file-item card" style="margin-bottom: 12px; border-left: 4px solid var(--text-accent); padding: 16px;">
@@ -124,7 +236,7 @@ const SessionsView = (() => {
                   <button class="btn btn-primary btn-sm" onclick="SessionsView.resumeSession(${quizId}, '${s.qtype}')">
                     ${I18n.t('sessions.resume')}
                   </button>
-                  <button class="btn btn-ghost btn-sm" onclick="SessionsView.deleteSession(${s.session_id})" style="color: #ef4444;" title="${I18n.t('sessions.deleteTooltip')}">
+                  <button class="btn btn-ghost btn-sm" onclick="SessionsView.deleteSession(${s.session_id}, ${quizId}, '${s.qtype}')" style="color: #ef4444;" title="${I18n.t('sessions.deleteTooltip')}">
                     ${I18n.t('sessions.delete')}
                   </button>
                 </div>
@@ -146,7 +258,7 @@ const SessionsView = (() => {
                     ${modeBadgeHTML}
                   </div>
                   <div style="font-size: 13px; color: var(--text-secondary); margin-top: 2px;">
-                    ${I18n.t('sessions.totalInQuiz', { count: g.sessions.length })}
+                    ${I18n.t('sessions.totalInQuiz', { count: allSessions.length })}
                   </div>
                 </div>
               </div>
@@ -213,7 +325,16 @@ const SessionsView = (() => {
 
   async function resumeSession(quizId, qtype) {
     try {
-      const sessionData = sessionDataStore.get(`${quizId}_${qtype}`);
+      let sessionData = sessionDataStore.get(`${quizId}_${qtype}`);
+
+      // Also check localStorage for a fresher version (it updates instantly, unlike server DB)
+      if (window.QuizPlayer && typeof QuizPlayer.getSavedProgress === 'function') {
+        const localSaved = QuizPlayer.getSavedProgress(quizId, qtype);
+        if (localSaved && (!sessionData || (localSaved.updatedAt || 0) > (sessionData.updatedAt || 0))) {
+          sessionData = localSaved;
+        }
+      }
+
       if (window.QuizPlayer && typeof QuizPlayer.resumeQuiz === 'function') {
         QuizPlayer.resumeQuiz(quizId, qtype, sessionData);
       } else if (window.QuizPlayer && typeof QuizPlayer.startQuiz === 'function') {
@@ -228,11 +349,21 @@ const SessionsView = (() => {
     }
   }
 
-  async function deleteSession(sessionId) {
+  async function deleteSession(sessionId, quizId = null, qtype = null) {
     if (!confirm(I18n.t('sessions.deleteConfirm'))) return;
     try {
-      const res = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error(I18n.t('common.error'));
+      if (quizId && qtype) {
+        if (window.QuizPlayer && typeof QuizPlayer.clearSavedProgress === 'function') {
+          QuizPlayer.clearSavedProgress(quizId, qtype);
+        } else {
+          localStorage.removeItem('quizmaster-progress-' + quizId + '_' + qtype);
+          if (qtype === 'all') localStorage.removeItem('quizmaster-progress-' + quizId);
+          await fetch(`/api/sessions/quiz/${quizId}/qtype/${qtype}`, { method: 'DELETE' }).catch(e => {});
+        }
+      } else if (sessionId && sessionId > 0) {
+        const res = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(I18n.t('common.error'));
+      }
       Components.showToast(I18n.t('sessions.deleted'), 'success');
       render();
     } catch (err) {

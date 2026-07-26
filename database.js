@@ -431,7 +431,7 @@ const sessions = {
         qtype: r.qtype,
         updated_at: r.updated_at,
         current_index: parsedData.currentQuestionIndex || 0,
-        total_questions: parsedData.questions ? parsedData.questions.length : 0,
+        total_questions: (parsedData.queue && parsedData.queue.length > 0) ? parsedData.queue.length : (parsedData.questions ? parsedData.questions.length : 0),
         score: parsedData.score || 0,
         wrong_count: parsedData.wrongCount || 0,
         mode: parsedData.mode || 'mcq',

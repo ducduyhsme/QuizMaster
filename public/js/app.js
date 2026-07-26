@@ -41,7 +41,11 @@ const App = (() => {
     Components.showToast('✅ ' + I18n.t('create.saved'), 'success');
   }
 
-  function handleRoute() {
+  async function handleRoute() {
+    if (window.QuizPlayer && typeof QuizPlayer.saveProgress === 'function') {
+      try { await QuizPlayer.saveProgress(); } catch (e) {}
+    }
+
     if (window.Components && typeof Components.closeModal === 'function') {
       Components.closeModal();
     }
