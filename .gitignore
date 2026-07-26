@@ -2,3 +2,4 @@ data\*.db
 public\uploads\excel\*.xlsx
 *.db
 *.xlsx
+/node_modules
