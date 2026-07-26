@@ -220,62 +220,6 @@ app.get('/api/quizzes', (req, res) => {
   }
 });
 
-function ensureVocabQuizUpToDate(quiz, qs) {
-  if (!quiz || quiz.quiz_type !== 'vocabulary' || !qs || qs.length === 0) {
-    return qs;
-  }
-
-  const hasIpa = qs.some(q => q.ipa && q.ipa.trim());
-  const hasIpaMcq = qs.some(q => q.question_type === 'mcq_ipa_word' || q.question_type === 'mcq_ipa_meaning');
-
-  if (hasIpa && !hasIpaMcq) {
-    const wordMap = new Map();
-    for (const q of qs) {
-      if (q.question_type === 'fill_word_meaning') {
-        const key = `${q.question_text}:${q.correct_answer}`;
-        if (!wordMap.has(key)) {
-          wordMap.set(key, { word: q.question_text, meaning: q.correct_answer, ipa: q.ipa || null });
-        } else if (q.ipa && !wordMap.get(key).ipa) {
-          wordMap.get(key).ipa = q.ipa;
-        }
-      }
-    }
-
-    if (wordMap.size === 0) {
-      for (const q of qs) {
-        if (q.question_type === 'fill_meaning_word') {
-          const key = `${q.correct_answer}:${q.question_text}`;
-          if (!wordMap.has(key)) {
-            wordMap.set(key, { word: q.correct_answer, meaning: q.question_text, ipa: q.ipa || null });
-          } else if (q.ipa && !wordMap.get(key).ipa) {
-            wordMap.get(key).ipa = q.ipa;
-          }
-        }
-      }
-    }
-
-    for (const q of qs) {
-      if (q.ipa && q.ipa.trim()) {
-        for (const [key, val] of wordMap.entries()) {
-          if (!val.ipa && (q.question_text === val.word || q.correct_answer === val.word)) {
-            val.ipa = q.ipa;
-          }
-        }
-      }
-    }
-
-    const words = Array.from(wordMap.values());
-    if (words.length >= 4) {
-      const generatedQuestions = generateQuestionsFromVocab(words);
-      questions.deleteByQuizId(quiz.id);
-      bulkInsertQuestions(quiz.id, generatedQuestions);
-      return questions.getByQuizId(quiz.id);
-    }
-  }
-
-  return qs;
-}
-
 app.get('/api/quizzes/:id', (req, res) => {
   try {
     const quiz = quizzes.getById(parseInt(req.params.id));
@@ -393,76 +337,229 @@ app.put('/api/quizzes/:id/vocabulary', (req, res) => {
   }
 });
 
-function generateQuestionsFromVocab(words) {
-  const generated = [];
-  if (words.length < 4) {
-    words.forEach(w => {
-      generated.push({ question_text: w.word, correct_answer: w.meaning, question_type: 'fill_word_meaning', ipa: w.ipa });
-      generated.push({ question_text: w.meaning, correct_answer: w.word, question_type: 'fill_meaning_word', ipa: w.ipa });
-      if (w.ipa) {
-        generated.push({ question_text: w.ipa, correct_answer: w.word, question_type: 'fill_ipa_word', ipa: w.ipa });
-        generated.push({ question_text: w.ipa, correct_answer: w.meaning, question_type: 'fill_ipa_meaning', ipa: w.ipa });
+function extractCleanVocabFromQuestions(qs) {
+  const wordMap = new Map();
+
+  for (const q of qs) {
+    const qtype = q.question_type || '';
+    let w = '', m = '', p = q.ipa ? String(q.ipa).split('/')[0].trim() : '';
+
+    if (qtype === 'fill_word_meaning' || qtype === 'mcq_word_meaning') {
+      w = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].split('/')[0].trim();
+      m = (q.correct_answer || '').split('/')[0].trim();
+    } else if (qtype === 'fill_meaning_word' || qtype === 'mcq_meaning_word') {
+      w = (q.correct_answer || '').split('/')[0].trim();
+      m = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].split('/')[0].trim();
+    } else if (qtype === 'fill_word_ipa' || qtype === 'mcq_word_ipa') {
+      w = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].split('/')[0].trim();
+      if (!p) p = (q.correct_answer || '').split('/')[0].trim();
+    } else if (qtype === 'fill_meaning_ipa' || qtype === 'mcq_meaning_ipa') {
+      m = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].split('/')[0].trim();
+      if (!p) p = (q.correct_answer || '').split('/')[0].trim();
+    } else if (qtype === 'fill_ipa_word' || qtype === 'mcq_ipa_word') {
+      w = (q.correct_answer || '').split('/')[0].trim();
+      if (!p) p = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].split('/')[0].trim();
+    } else if (qtype === 'fill_ipa_meaning' || qtype === 'mcq_ipa_meaning') {
+      m = (q.correct_answer || '').split('/')[0].trim();
+      if (!p) p = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].split('/')[0].trim();
+    }
+
+    if (w && m && w !== m && w !== p && m !== p) {
+      w = w.split('/')[0].trim();
+      m = m.split('/')[0].trim();
+
+      const key = w.toLowerCase() + ':::' + m.toLowerCase();
+      if (!wordMap.has(key)) {
+        wordMap.set(key, { word: w, meaning: m, ipa: p || null });
+      } else if (p && !wordMap.get(key).ipa) {
+        wordMap.get(key).ipa = p;
       }
-      generated.push({ question_text: '🎧 ' + w.word, correct_answer: w.meaning, question_type: 'fill_listen_meaning', ipa: w.ipa });
-      generated.push({ question_text: '🎧 ' + w.word, correct_answer: w.word, question_type: 'fill_listen_word', ipa: w.ipa });
-    });
-    return generated;
+    }
   }
 
-  words.forEach((w, index) => {
-    const getWrong = (key, correctVal) => {
-      const distractors = [];
-      const others = words.filter((_, i) => i !== index && words[i][key]);
-      const shuffled = others.sort(() => 0.5 - Math.random());
-      for (const opt of shuffled) {
-        if (!distractors.includes(opt[key]) && opt[key] !== correctVal) {
-          distractors.push(opt[key]);
+  for (const q of qs) {
+    if (q.ipa && q.ipa.trim()) {
+      const cleanP = String(q.ipa).split('/')[0].trim();
+      const qText = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].split('/')[0].trim();
+      const cAns = (q.correct_answer || '').split('/')[0].trim();
+
+      for (const [key, val] of wordMap.entries()) {
+        if (!val.ipa && (qText === val.word || cAns === val.word || qText === val.meaning || cAns === val.meaning)) {
+          val.ipa = cleanP;
         }
-        if (distractors.length === 3) break;
-      }
-      return distractors;
-    };
-
-    generated.push({ question_text: w.word, correct_answer: w.meaning, question_type: 'fill_word_meaning', ipa: w.ipa });
-    generated.push({ question_text: w.meaning, correct_answer: w.word, question_type: 'fill_meaning_word', ipa: w.ipa });
-    generated.push({ question_text: '🎧 ' + w.word, correct_answer: w.meaning, question_type: 'fill_listen_meaning', ipa: w.ipa });
-    generated.push({ question_text: '🎧 ' + w.word, correct_answer: w.word, question_type: 'fill_listen_word', ipa: w.ipa });
-    if (w.ipa) {
-      generated.push({ question_text: w.ipa, correct_answer: w.word, question_type: 'fill_ipa_word', ipa: w.ipa });
-      generated.push({ question_text: w.ipa, correct_answer: w.meaning, question_type: 'fill_ipa_meaning', ipa: w.ipa });
-    }
-
-    const wrongMeanings = getWrong('meaning', w.meaning);
-    if (wrongMeanings.length === 3) {
-      const opts = [w.meaning, ...wrongMeanings].sort(() => 0.5 - Math.random());
-      generated.push({ question_text: w.word + '|||' + JSON.stringify(opts), correct_answer: w.meaning, question_type: 'mcq_word_meaning', ipa: w.ipa });
-      generated.push({ question_text: '🎧 ' + w.word + '|||' + JSON.stringify(opts), correct_answer: w.meaning, question_type: 'mcq_listen_meaning', ipa: w.ipa });
-      if (w.ipa) {
-        generated.push({ question_text: w.ipa + '|||' + JSON.stringify(opts), correct_answer: w.meaning, question_type: 'mcq_ipa_meaning', ipa: w.ipa });
       }
     }
+  }
 
-    const wrongWords = getWrong('word', w.word);
-    if (wrongWords.length === 3) {
-      const opts = [w.word, ...wrongWords].sort(() => 0.5 - Math.random());
-      generated.push({ question_text: w.meaning + '|||' + JSON.stringify(opts), correct_answer: w.word, question_type: 'mcq_meaning_word', ipa: w.ipa });
-      generated.push({ question_text: '🎧 ' + w.word + '|||' + JSON.stringify(opts), correct_answer: w.word, question_type: 'mcq_listen_word', ipa: w.ipa });
-      if (w.ipa) {
-        generated.push({ question_text: w.ipa + '|||' + JSON.stringify(opts), correct_answer: w.word, question_type: 'mcq_ipa_word', ipa: w.ipa });
-      }
+  return Array.from(wordMap.values());
+}
+
+function ensureVocabQuizUpToDate(quiz, qs) {
+  if (!quiz || quiz.quiz_type !== 'vocabulary' || !qs || qs.length === 0) {
+    return qs;
+  }
+
+  const words = extractCleanVocabFromQuestions(qs);
+  if (words.length >= 4) {
+    const generatedQuestions = generateQuestionsFromVocab(words);
+    questions.deleteByQuizId(quiz.id);
+    bulkInsertQuestions(quiz.id, generatedQuestions);
+    return questions.getByQuizId(quiz.id);
+  }
+
+  return qs;
+}
+
+function generateQuestionsFromVocab(words) {
+  const generated = [];
+  if (!words || words.length === 0) return generated;
+
+  // Build clean maps for multi-mapping relationships
+  const wordToMeanings = new Map();
+  const meaningToWords = new Map();
+  const ipaToWords = new Map();
+  const ipaToMeanings = new Map();
+  const wordToIpa = new Map();
+
+  const allWordsList = [];
+  const allMeaningsList = [];
+  const allIpasList = [];
+
+  words.forEach(w => {
+    const cW = String(w.word || '').split('/')[0].trim();
+    const cM = String(w.meaning || '').split('/')[0].trim();
+    const cP = w.ipa ? String(w.ipa).split('/')[0].trim() : '';
+
+    if (!cW || !cM) return;
+
+    const lowerW = cW.toLowerCase();
+    const lowerM = cM.toLowerCase();
+    const lowerP = cP.toLowerCase();
+
+    if (!allWordsList.includes(cW)) allWordsList.push(cW);
+    if (!allMeaningsList.includes(cM)) allMeaningsList.push(cM);
+    if (cP && !allIpasList.includes(cP)) allIpasList.push(cP);
+
+    if (!wordToMeanings.has(lowerW)) wordToMeanings.set(lowerW, new Set());
+    wordToMeanings.get(lowerW).add(cM);
+
+    if (!meaningToWords.has(lowerM)) meaningToWords.set(lowerM, new Set());
+    meaningToWords.get(lowerM).add(cW);
+
+    if (cP) {
+      wordToIpa.set(lowerW, cP);
+
+      if (!ipaToWords.has(lowerP)) ipaToWords.set(lowerP, new Set());
+      ipaToWords.get(lowerP).add(cW);
+
+      if (!ipaToMeanings.has(lowerP)) ipaToMeanings.set(lowerP, new Set());
+      ipaToMeanings.get(lowerP).add(cM);
+    }
+  });
+
+  const getDistractors = (pool, excludeSet, count = 3) => {
+    const normExclude = new Set(Array.from(excludeSet).map(s => String(s).trim().toLowerCase()));
+    const validCandidates = pool.filter(item => !normExclude.has(String(item).trim().toLowerCase()));
+    const shuffled = [...validCandidates].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, count);
+  };
+
+  words.forEach(w => {
+    const cW = String(w.word || '').split('/')[0].trim();
+    const cM = String(w.meaning || '').split('/')[0].trim();
+    const cP = w.ipa ? String(w.ipa).split('/')[0].trim() : '';
+    if (!cW || !cM) return;
+
+    const lowerW = cW.toLowerCase();
+    const lowerM = cM.toLowerCase();
+    const lowerP = cP.toLowerCase();
+
+    const validMeaningsForWord = Array.from(wordToMeanings.get(lowerW) || [cM]).join(' / ');
+    const validWordsForMeaning = Array.from(meaningToWords.get(lowerM) || [cW]).join(' / ');
+    const validWordsForIpa = cP ? Array.from(ipaToWords.get(lowerP) || [cW]).join(' / ') : cW;
+    const validMeaningsForIpa = cP ? Array.from(ipaToMeanings.get(lowerP) || [cM]).join(' / ') : cM;
+
+    // 1. Fill-in question types (6 types)
+    generated.push({ question_text: cW, correct_answer: validMeaningsForWord, question_type: 'fill_word_meaning', ipa: cP });
+    generated.push({ question_text: cM, correct_answer: validWordsForMeaning, question_type: 'fill_meaning_word', ipa: cP });
+    generated.push({ question_text: '🎧 ' + cW, correct_answer: validMeaningsForWord, question_type: 'fill_listen_meaning', ipa: cP });
+    generated.push({ question_text: '🎧 ' + cW, correct_answer: cW, question_type: 'fill_listen_word', ipa: cP });
+
+    if (cP) {
+      generated.push({ question_text: cP, correct_answer: validWordsForIpa, question_type: 'fill_ipa_word', ipa: cP });
+      generated.push({ question_text: cP, correct_answer: validMeaningsForIpa, question_type: 'fill_ipa_meaning', ipa: cP });
     }
 
-    if (w.ipa) {
-      const wrongIPAs = getWrong('ipa', w.ipa);
-      if (wrongIPAs.length === 3) {
-        const opts = [w.ipa, ...wrongIPAs].sort(() => 0.5 - Math.random());
-        generated.push({ question_text: w.meaning + '|||' + JSON.stringify(opts), correct_answer: w.ipa, question_type: 'mcq_meaning_ipa', ipa: w.ipa });
-        generated.push({ question_text: w.word + '|||' + JSON.stringify(opts), correct_answer: w.ipa, question_type: 'mcq_word_ipa', ipa: w.ipa });
+    // 2. MCQ question types (8 types)
+    if (words.length >= 4) {
+      // mcq_word_meaning
+      const excludeForWordMeaning = wordToMeanings.get(lowerW) || new Set([cM]);
+      const wrongMeaningsForWord = getDistractors(allMeaningsList, excludeForWordMeaning, 3);
+      if (wrongMeaningsForWord.length === 3) {
+        const opts = [validMeaningsForWord, ...wrongMeaningsForWord].sort(() => 0.5 - Math.random());
+        generated.push({ question_text: cW + '|||' + JSON.stringify(opts), correct_answer: validMeaningsForWord, question_type: 'mcq_word_meaning', ipa: cP });
+        generated.push({ question_text: '🎧 ' + cW + '|||' + JSON.stringify(opts), correct_answer: validMeaningsForWord, question_type: 'mcq_listen_meaning', ipa: cP });
+      }
+
+      // mcq_meaning_word
+      const excludeForMeaningWord = meaningToWords.get(lowerM) || new Set([cW]);
+      const wrongWordsForMeaning = getDistractors(allWordsList, excludeForMeaningWord, 3);
+      if (wrongWordsForMeaning.length === 3) {
+        const opts = [validWordsForMeaning, ...wrongWordsForMeaning].sort(() => 0.5 - Math.random());
+        generated.push({ question_text: cM + '|||' + JSON.stringify(opts), correct_answer: validWordsForMeaning, question_type: 'mcq_meaning_word', ipa: cP });
+        generated.push({ question_text: '🎧 ' + cW + '|||' + JSON.stringify(opts), correct_answer: cW, question_type: 'mcq_listen_word', ipa: cP });
+      }
+
+      // mcq_word_ipa
+      if (cP && allIpasList.length >= 4) {
+        const wrongIpasForWord = getDistractors(allIpasList, new Set([cP]), 3);
+        if (wrongIpasForWord.length === 3) {
+          const opts = [cP, ...wrongIpasForWord].sort(() => 0.5 - Math.random());
+          generated.push({ question_text: cW + '|||' + JSON.stringify(opts), correct_answer: cP, question_type: 'mcq_word_ipa', ipa: cP });
+        }
+      }
+
+      // mcq_meaning_ipa
+      if (cP && allIpasList.length >= 4) {
+        const validIpasForMeaning = new Set(
+          Array.from(meaningToWords.get(lowerM) || [])
+            .map(w => wordToIpa.get(w.toLowerCase()))
+            .filter(Boolean)
+        );
+        const wrongIpasForMeaning = getDistractors(allIpasList, validIpasForMeaning, 3);
+        if (wrongIpasForMeaning.length === 3) {
+          const joinedValidIpas = Array.from(validIpasForMeaning).join(' / ') || cP;
+          const opts = [joinedValidIpas, ...wrongIpasForMeaning].sort(() => 0.5 - Math.random());
+          generated.push({ question_text: cM + '|||' + JSON.stringify(opts), correct_answer: joinedValidIpas, question_type: 'mcq_meaning_ipa', ipa: cP });
+        }
+      }
+
+      // mcq_ipa_word
+      if (cP) {
+        const excludeForIpaWord = ipaToWords.get(lowerP) || new Set([cW]);
+        const wrongWordsForIpa = getDistractors(allWordsList, excludeForIpaWord, 3);
+        if (wrongWordsForIpa.length === 3) {
+          const opts = [validWordsForIpa, ...wrongWordsForIpa].sort(() => 0.5 - Math.random());
+          generated.push({ question_text: cP + '|||' + JSON.stringify(opts), correct_answer: validWordsForIpa, question_type: 'mcq_ipa_word', ipa: cP });
+        }
+      }
+
+      // mcq_ipa_meaning
+      if (cP) {
+        const excludeForIpaMeaning = ipaToMeanings.get(lowerP) || new Set([cM]);
+        const wrongMeaningsForIpa = getDistractors(allMeaningsList, excludeForIpaMeaning, 3);
+        if (wrongMeaningsForIpa.length === 3) {
+          const opts = [validMeaningsForIpa, ...wrongMeaningsForIpa].sort(() => 0.5 - Math.random());
+          generated.push({ question_text: cP + '|||' + JSON.stringify(opts), correct_answer: validMeaningsForIpa, question_type: 'mcq_ipa_meaning', ipa: cP });
+        }
       }
     }
   });
 
-  const dedupeTypes = new Set(['mcq_word_ipa', 'mcq_ipa_word', 'fill_ipa_word', 'fill_word_ipa', 'mcq_listen_word', 'fill_listen_word']);
+  const dedupeTypes = new Set([
+    'mcq_word_meaning', 'mcq_meaning_word', 'mcq_word_ipa', 'mcq_meaning_ipa', 'mcq_ipa_word', 'mcq_ipa_meaning', 'mcq_listen_word', 'mcq_listen_meaning',
+    'fill_word_meaning', 'fill_meaning_word', 'fill_ipa_word', 'fill_ipa_meaning', 'fill_listen_word', 'fill_listen_meaning'
+  ]);
   const seenDedupeKeys = new Set();
 
   const filteredGenerated = [];
@@ -912,6 +1009,48 @@ app.get('/api/tts', async (req, res) => {
   }
 });
 
+// --- Game Sessions APIs ---
+
+app.get('/api/sessions', (req, res) => {
+  try {
+    const list = sessions.getByUserGroupedByQuiz(req.user.userId);
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/sessions/save', (req, res) => {
+  try {
+    const { quizId, qtype = 'all', sessionData } = req.body;
+    if (!quizId || !sessionData) {
+      return res.status(400).json({ error: 'quizId and sessionData are required' });
+    }
+    sessions.save(req.user.userId, parseInt(quizId), qtype, sessionData);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/sessions/:id', (req, res) => {
+  try {
+    sessions.deleteById(parseInt(req.params.id), req.user.userId);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/sessions/quiz/:quizId/qtype/:qtype', (req, res) => {
+  try {
+    sessions.delete(req.user.userId, parseInt(req.params.quizId), req.params.qtype);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Catch-all SPA
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -928,10 +1067,29 @@ app.use((err, req, res, next) => {
   next();
 });
 
+function sanitizeAllVocabQuizzesInDatabase() {
+  try {
+    const allQuizzesList = quizzes.getAll();
+    const vocabQuizzes = allQuizzesList.filter(q => q.quiz_type === 'vocabulary');
+    let count = 0;
+    for (const vq of vocabQuizzes) {
+      const qs = questions.getByQuizId(vq.id);
+      if (qs && qs.length > 0) {
+        ensureVocabQuizUpToDate(vq, qs);
+        count++;
+      }
+    }
+    console.log(`✅ Cleaned up and updated ${count} vocabulary quizzes in database.`);
+  } catch (err) {
+    console.warn('Database vocab sanitization error:', err);
+  }
+}
+
 // Start Server
 async function start() {
   try {
     await initDatabase();
+    sanitizeAllVocabQuizzesInDatabase();
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`\n🚀 Quiz App is running!`);
       console.log(`   Local:    http://localhost:${PORT}`);

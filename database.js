@@ -226,6 +226,10 @@ const users = {
 
 // Quiz CRUD
 const quizzes = {
+  getAll() {
+    return queryAll('SELECT * FROM quizzes');
+  },
+
   getAllForUser(userId) {
     return queryAll(`
       SELECT q.*, 
@@ -436,6 +440,10 @@ const sessions = {
     }
 
     return Array.from(groupsMap.values());
+  },
+
+  getAllForUser(userId) {
+    return this.getByUserGroupedByQuiz(userId);
   },
 
   getOne(userId, quizId, qtype) {

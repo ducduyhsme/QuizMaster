@@ -7,12 +7,33 @@ const Components = (() => {
   // Toast notification
   function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
+    if (!container) return;
+
     const icons = { success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️' };
+    const cleanMsg = typeof message === 'string'
+      ? message.replace(/^[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}✅❌ℹ️⚠️]\s*/u, '').trim()
+      : String(message);
+
+    // Prevent duplicate toast if an identical message is already active
+    const existingToasts = container.querySelectorAll('.toast');
+    for (const existing of existingToasts) {
+      if (existing.dataset.msg === cleanMsg && existing.dataset.type === type) {
+        return; // Ignore duplicate toast burst
+      }
+    }
+
+    // Keep max 3 toasts visible at once
+    if (existingToasts.length >= 3) {
+      existingToasts[0].remove();
+    }
+
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
+    toast.dataset.msg = cleanMsg;
+    toast.dataset.type = type;
     toast.innerHTML = `
       <span class="toast-icon">${icons[type] || icons.info}</span>
-      <span>${message}</span>
+      <span>${cleanMsg}</span>
     `;
     container.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
