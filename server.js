@@ -474,39 +474,39 @@ function generateQuestionsFromVocab(words) {
     const lowerM = cM.toLowerCase();
     const lowerP = cP.toLowerCase();
 
-    const validMeaningsForWord = Array.from(wordToMeanings.get(lowerW) || [cM]).join(' / ');
-    const validWordsForMeaning = Array.from(meaningToWords.get(lowerM) || [cW]).join(' / ');
-    const validWordsForIpa = cP ? Array.from(ipaToWords.get(lowerP) || [cW]).join(' / ') : cW;
-    const validMeaningsForIpa = cP ? Array.from(ipaToMeanings.get(lowerP) || [cM]).join(' / ') : cM;
+    const fillMeaningsForWord = Array.from(wordToMeanings.get(lowerW) || [cM]).join(' / ');
+    const fillWordsForMeaning = Array.from(meaningToWords.get(lowerM) || [cW]).join(' / ');
+    const fillWordsForIpa = cP ? Array.from(ipaToWords.get(lowerP) || [cW]).join(' / ') : cW;
+    const fillMeaningsForIpa = cP ? Array.from(ipaToMeanings.get(lowerP) || [cM]).join(' / ') : cM;
 
-    // 1. Fill-in question types (6 types)
-    generated.push({ question_text: cW, correct_answer: validMeaningsForWord, question_type: 'fill_word_meaning', ipa: cP });
-    generated.push({ question_text: cM, correct_answer: validWordsForMeaning, question_type: 'fill_meaning_word', ipa: cP });
-    generated.push({ question_text: '🎧 ' + cW, correct_answer: validMeaningsForWord, question_type: 'fill_listen_meaning', ipa: cP });
+    // 1. Fill-in question types (6 types) - can accept multiple valid alternative answers
+    generated.push({ question_text: cW, correct_answer: fillMeaningsForWord, question_type: 'fill_word_meaning', ipa: cP });
+    generated.push({ question_text: cM, correct_answer: fillWordsForMeaning, question_type: 'fill_meaning_word', ipa: cP });
+    generated.push({ question_text: '🎧 ' + cW, correct_answer: fillMeaningsForWord, question_type: 'fill_listen_meaning', ipa: cP });
     generated.push({ question_text: '🎧 ' + cW, correct_answer: cW, question_type: 'fill_listen_word', ipa: cP });
 
     if (cP) {
-      generated.push({ question_text: cP, correct_answer: validWordsForIpa, question_type: 'fill_ipa_word', ipa: cP });
-      generated.push({ question_text: cP, correct_answer: validMeaningsForIpa, question_type: 'fill_ipa_meaning', ipa: cP });
+      generated.push({ question_text: cP, correct_answer: fillWordsForIpa, question_type: 'fill_ipa_word', ipa: cP });
+      generated.push({ question_text: cP, correct_answer: fillMeaningsForIpa, question_type: 'fill_ipa_meaning', ipa: cP });
     }
 
-    // 2. MCQ question types (8 types)
+    // 2. MCQ question types (8 types) - EVERY option MUST be a SINGLE item (NO '/' in option boxes!)
     if (words.length >= 4) {
       // mcq_word_meaning
       const excludeForWordMeaning = wordToMeanings.get(lowerW) || new Set([cM]);
       const wrongMeaningsForWord = getDistractors(allMeaningsList, excludeForWordMeaning, 3);
       if (wrongMeaningsForWord.length === 3) {
-        const opts = [validMeaningsForWord, ...wrongMeaningsForWord].sort(() => 0.5 - Math.random());
-        generated.push({ question_text: cW + '|||' + JSON.stringify(opts), correct_answer: validMeaningsForWord, question_type: 'mcq_word_meaning', ipa: cP });
-        generated.push({ question_text: '🎧 ' + cW + '|||' + JSON.stringify(opts), correct_answer: validMeaningsForWord, question_type: 'mcq_listen_meaning', ipa: cP });
+        const opts = [cM, ...wrongMeaningsForWord].sort(() => 0.5 - Math.random());
+        generated.push({ question_text: cW + '|||' + JSON.stringify(opts), correct_answer: cM, question_type: 'mcq_word_meaning', ipa: cP });
+        generated.push({ question_text: '🎧 ' + cW + '|||' + JSON.stringify(opts), correct_answer: cM, question_type: 'mcq_listen_meaning', ipa: cP });
       }
 
       // mcq_meaning_word
       const excludeForMeaningWord = meaningToWords.get(lowerM) || new Set([cW]);
       const wrongWordsForMeaning = getDistractors(allWordsList, excludeForMeaningWord, 3);
       if (wrongWordsForMeaning.length === 3) {
-        const opts = [validWordsForMeaning, ...wrongWordsForMeaning].sort(() => 0.5 - Math.random());
-        generated.push({ question_text: cM + '|||' + JSON.stringify(opts), correct_answer: validWordsForMeaning, question_type: 'mcq_meaning_word', ipa: cP });
+        const opts = [cW, ...wrongWordsForMeaning].sort(() => 0.5 - Math.random());
+        generated.push({ question_text: cM + '|||' + JSON.stringify(opts), correct_answer: cW, question_type: 'mcq_meaning_word', ipa: cP });
         generated.push({ question_text: '🎧 ' + cW + '|||' + JSON.stringify(opts), correct_answer: cW, question_type: 'mcq_listen_word', ipa: cP });
       }
 
@@ -528,9 +528,8 @@ function generateQuestionsFromVocab(words) {
         );
         const wrongIpasForMeaning = getDistractors(allIpasList, validIpasForMeaning, 3);
         if (wrongIpasForMeaning.length === 3) {
-          const joinedValidIpas = Array.from(validIpasForMeaning).join(' / ') || cP;
-          const opts = [joinedValidIpas, ...wrongIpasForMeaning].sort(() => 0.5 - Math.random());
-          generated.push({ question_text: cM + '|||' + JSON.stringify(opts), correct_answer: joinedValidIpas, question_type: 'mcq_meaning_ipa', ipa: cP });
+          const opts = [cP, ...wrongIpasForMeaning].sort(() => 0.5 - Math.random());
+          generated.push({ question_text: cM + '|||' + JSON.stringify(opts), correct_answer: cP, question_type: 'mcq_meaning_ipa', ipa: cP });
         }
       }
 
@@ -539,8 +538,8 @@ function generateQuestionsFromVocab(words) {
         const excludeForIpaWord = ipaToWords.get(lowerP) || new Set([cW]);
         const wrongWordsForIpa = getDistractors(allWordsList, excludeForIpaWord, 3);
         if (wrongWordsForIpa.length === 3) {
-          const opts = [validWordsForIpa, ...wrongWordsForIpa].sort(() => 0.5 - Math.random());
-          generated.push({ question_text: cP + '|||' + JSON.stringify(opts), correct_answer: validWordsForIpa, question_type: 'mcq_ipa_word', ipa: cP });
+          const opts = [cW, ...wrongWordsForIpa].sort(() => 0.5 - Math.random());
+          generated.push({ question_text: cP + '|||' + JSON.stringify(opts), correct_answer: cW, question_type: 'mcq_ipa_word', ipa: cP });
         }
       }
 
@@ -549,8 +548,8 @@ function generateQuestionsFromVocab(words) {
         const excludeForIpaMeaning = ipaToMeanings.get(lowerP) || new Set([cM]);
         const wrongMeaningsForIpa = getDistractors(allMeaningsList, excludeForIpaMeaning, 3);
         if (wrongMeaningsForIpa.length === 3) {
-          const opts = [validMeaningsForIpa, ...wrongMeaningsForIpa].sort(() => 0.5 - Math.random());
-          generated.push({ question_text: cP + '|||' + JSON.stringify(opts), correct_answer: validMeaningsForIpa, question_type: 'mcq_ipa_meaning', ipa: cP });
+          const opts = [cM, ...wrongMeaningsForIpa].sort(() => 0.5 - Math.random());
+          generated.push({ question_text: cP + '|||' + JSON.stringify(opts), correct_answer: cM, question_type: 'mcq_ipa_meaning', ipa: cP });
         }
       }
     }
@@ -980,7 +979,37 @@ app.get('/api/tts', async (req, res) => {
 
     const cleanText = String(text).replace(/<[^>]*>/g, '').trim().substring(0, 200);
     
-    let gLang = String(lang).toLowerCase().trim();
+    let rawLang = String(lang).toLowerCase().trim();
+    const isChinese = rawLang === 'zh' || rawLang === 'zh-cn' || rawLang.startsWith('zh');
+
+    // 1. Try Baidu Translate TTS first for Chinese text
+    if (isChinese) {
+      try {
+        const baiduUrl = `https://fanyi.baidu.com/gettts?lan=zh&text=${encodeURIComponent(cleanText)}&spd=3&source=web`;
+        const baiduRes = await fetch(baiduUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://fanyi.baidu.com/'
+          }
+        });
+
+        if (baiduRes.ok) {
+          const arrayBuffer = await baiduRes.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          if (buffer.length > 0) {
+            res.set('Content-Type', 'audio/mpeg');
+            res.set('Access-Control-Allow-Origin', '*');
+            res.set('Cache-Control', 'public, max-age=86400');
+            return res.send(buffer);
+          }
+        }
+      } catch (baiduErr) {
+        console.warn('Baidu TTS proxy error, falling back to Google TTS:', baiduErr.message);
+      }
+    }
+
+    // 2. Default or Fallback: Google Translate TTS
+    let gLang = rawLang;
     if (gLang === 'zh') gLang = 'zh-CN';
     else if (gLang.includes('-')) gLang = gLang.split('-')[0];
 
