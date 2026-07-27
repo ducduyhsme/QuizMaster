@@ -2795,6 +2795,10 @@ body[data-theme="light"] .result-item:hover {
   align-items: flex-start;
 }
 
+.vocab-player-layout .question-card {
+  animation: none !important;
+}
+
 .vocab-player-main {
   flex: 1;
   min-width: 0;

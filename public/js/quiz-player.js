@@ -7,6 +7,7 @@ const QuizPlayer = (() => {
   let questionsQueue = [];
   let currentIndex = 0;
   let results = [];
+  let questionStates = [];
   let currentRetries = 0;
   let answered = false;
   let lastAnswerTime = 0;
@@ -49,6 +50,7 @@ const QuizPlayer = (() => {
         isCorrect: r.isCorrect,
         retries: r.retries
       }));
+      const lightweightStates = questionStates.map(s => ({ ...s }));
 
       const authToken = (window.Auth && Auth.getToken()) || localStorage.getItem('quizmaster-token') || null;
       const currentUser = (window.Auth && Auth.getUser()) || null;
@@ -64,6 +66,7 @@ const QuizPlayer = (() => {
         queue: lightweightQueue,
         selectedQuestionType: effectiveQtype,
         results: lightweightResults,
+        questionStates: lightweightStates,
         usedAnswers,
         updatedAt: Date.now()
       };
@@ -133,8 +136,9 @@ const QuizPlayer = (() => {
       if (qtypeQuestions.length === 0) return;
 
       const qtypeResults = results.filter(r => r.question && r.question.question_type === qtype);
+      const qtypeStates = questionStates.filter(s => s.questionType === qtype);
       const activeAnsweredForQtype = activeAnsweredQuestion && activeAnsweredQuestion.question_type === qtype && !activeAnsweredAlreadyInResults;
-      if (qtypeResults.length === 0 && !activeAnsweredForQtype) return;
+      if (qtypeResults.length === 0 && !activeAnsweredForQtype && qtypeStates.length === 0) return;
 
       const qtypeIndexToSave = Math.min(qtypeResults.length + (activeAnsweredForQtype ? 1 : 0), qtypeQuestions.length);
 
@@ -165,6 +169,7 @@ const QuizPlayer = (() => {
           isCorrect: r.isCorrect,
           retries: r.retries
         })),
+        questionStates: qtypeStates.map(s => ({ ...s })),
         usedAnswers,
         updatedAt: Date.now()
       };
@@ -221,6 +226,7 @@ const QuizPlayer = (() => {
           isCorrect: r.isCorrect,
           retries: r.retries
         })),
+        questionStates: questionStates.map(s => ({ ...s })),
         usedAnswers,
         updatedAt: Date.now()
       };
@@ -618,6 +624,7 @@ const QuizPlayer = (() => {
 
       selectedQuestionType = effectiveQtype;
       results = saved.results || [];
+      questionStates = Array.isArray(saved.questionStates) ? saved.questionStates : (saved.results || []).map(r => ({ key: String(r.questionId || r.question?.id) + '|' + (r.questionType || r.question?.question_type) + '|' + r.queueIndex, questionId: r.questionId || r.question?.id, questionType: r.questionType || r.question?.question_type, queueIndex: r.queueIndex, status: r.isCorrect ? 'correct' : 'incorrect' }));
       usedAnswers = saved.usedAnswers || {};
 
       if (currentQuiz.quiz_type === 'vocabulary') {
@@ -841,6 +848,7 @@ const QuizPlayer = (() => {
 
       currentIndex = 0;
       results = [];
+      questionStates = [];
       usedAnswers = {};
       renderQuestion();
     } catch (err) {
@@ -1104,24 +1112,22 @@ const QuizPlayer = (() => {
       }, 100);
     }
 
-    // Auto-scroll grid container to track active question box without jumping to top
+    // Auto-scroll grid container instantly to track active question box without sliding animation
     if (currentQuiz && currentQuiz.quiz_type === 'vocabulary') {
-      setTimeout(() => {
-        const currentBox = document.querySelector('.vocab-grid-box.current');
-        const gridContainer = document.querySelector('.vocab-grid-container');
-        if (currentBox && gridContainer) {
-          const boxTop = currentBox.offsetTop;
-          const boxBottom = boxTop + currentBox.offsetHeight;
-          const containerTop = gridContainer.scrollTop;
-          const containerBottom = containerTop + gridContainer.clientHeight;
+      const currentBox = document.querySelector('.vocab-grid-box.current');
+      const gridContainer = document.querySelector('.vocab-grid-container');
+      if (currentBox && gridContainer) {
+        const boxTop = currentBox.offsetTop;
+        const boxBottom = boxTop + currentBox.offsetHeight;
+        const containerTop = gridContainer.scrollTop;
+        const containerBottom = containerTop + gridContainer.clientHeight;
 
-          if (boxTop < containerTop) {
-            gridContainer.scrollTo({ top: Math.max(0, boxTop - 12), behavior: 'smooth' });
-          } else if (boxBottom > containerBottom) {
-            gridContainer.scrollTo({ top: boxBottom - gridContainer.clientHeight + 12, behavior: 'smooth' });
-          }
+        if (boxTop < containerTop) {
+          gridContainer.scrollTop = Math.max(0, boxTop - 12);
+        } else if (boxBottom > containerBottom) {
+          gridContainer.scrollTop = boxBottom - gridContainer.clientHeight + 12;
         }
-      }, 50);
+      }
     }
   }
 
@@ -1305,6 +1311,7 @@ const QuizPlayer = (() => {
     }
     currentIndex = 0;
     results = [];
+    questionStates = [];
     usedAnswers = {};
     renderQuestion();
   }
@@ -1315,6 +1322,14 @@ const QuizPlayer = (() => {
     saveProgress();
     currentIndex = index;
     renderQuestion();
+  }
+
+  function setQuestionState(question, queueIndex, status) {
+    const key = String(question.id) + '|' + question.question_type + '|' + queueIndex;
+    const existing = questionStates.findIndex(s => s.key === key);
+    const state = { key, questionId: question.id, questionType: question.question_type, queueIndex, status };
+    if (existing >= 0) questionStates[existing] = state;
+    else questionStates.push(state);
   }
 
   function buildVocabGridHTML() {
@@ -1329,9 +1344,13 @@ const QuizPlayer = (() => {
     targetList.forEach((q, idx) => {
       const isCurrent = idx === currentIndex;
       
-      const res = results.find(r => 
+      const state = questionStates.find(s =>
+        (s.queueIndex === idx && s.questionType === q.question_type) ||
+        (String(s.questionId) === String(q.id) && s.questionType === q.question_type)
+      );
+      const res = results.find(r =>
         (r.queueIndex !== undefined && r.queueIndex === idx) ||
-        r.question === q || 
+        r.question === q ||
         (r.question && r.question === q) ||
         ((r.questionId || r.question?.id) && String(r.questionId || r.question?.id) === String(q.id) && (r.questionType || r.question?.question_type) === q.question_type && ((r.questionText || r.question?.question_text) === q.question_text || r.queueIndex === idx))
       );
@@ -1339,7 +1358,10 @@ const QuizPlayer = (() => {
       let statusClass = 'pending';
       let titleTooltip = `${I18n.t('play.questionOf', { current: idx + 1, total: totalN })}`;
 
-      if (res) {
+      if (state) {
+        statusClass = state.status;
+        titleTooltip += `: ${state.status === 'correct' ? I18n.t('play.correct') : I18n.t('play.incorrect')}`;
+      } else if (res) {
         statusClass = res.isCorrect ? 'correct' : 'incorrect';
         titleTooltip += `: ${res.isCorrect ? I18n.t('play.correct') : I18n.t('play.incorrect')}`;
       } else if (isCurrent) {
@@ -1365,7 +1387,7 @@ const QuizPlayer = (() => {
       `;
     });
 
-    const answeredCount = results.length;
+    const answeredCount = questionStates.filter(s => s.status === 'correct' || s.status === 'incorrect').length;
 
     return `
       <div class="vocab-grid-sidebar">
@@ -1468,6 +1490,7 @@ const QuizPlayer = (() => {
         isCorrect: true,
         retries: q._failedTries || 0,
       });
+      setQuestionState(q, currentIndex, 'correct');
 
       saveProgress();
 
@@ -1590,6 +1613,7 @@ const QuizPlayer = (() => {
           isCorrect: false,
           retries: currentRetries,
         });
+        setQuestionState(q, currentIndex, 'incorrect');
       }
 
       saveProgress();
