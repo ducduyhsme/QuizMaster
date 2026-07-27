@@ -208,6 +208,8 @@ const I18n = (() => {
       'play.dontRemember': 'Không nhớ',
       'play.dontRememberFeedback': '❓ Đã chọn Không nhớ! Đáp án đúng: {answer}',
       'play.dontRememberLabel': 'Không nhớ',
+      'play.questionList': 'Danh sách câu',
+      'play.current': 'Hiện tại',
       'quiz.pinned': 'Ghim',
 
       // Results
@@ -530,6 +532,8 @@ const I18n = (() => {
       'play.dontRemember': 'Don\'t remember',
       'play.dontRememberFeedback': '❓ Selected Don\'t remember! Correct answer: {answer}',
       'play.dontRememberLabel': 'Don\'t remember',
+      'play.questionList': 'Question List',
+      'play.current': 'Current',
       'quiz.pinned': 'Pinned',
 
       // Results

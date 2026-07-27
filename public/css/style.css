@@ -2786,6 +2786,176 @@ body[data-theme="light"] .result-item:hover {
   background: #f1f5f9;
 }
 
+/* --- Vocabulary Mode Right-side Grid Sidebar --- */
+.vocab-player-layout {
+  display: flex;
+  gap: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  align-items: flex-start;
+}
+
+.vocab-player-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.vocab-grid-sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: 20px;
+  position: sticky;
+  top: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.vocab-grid-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.vocab-grid-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vocab-grid-stats {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-accent);
+  background: rgba(99, 102, 241, 0.15);
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.vocab-grid-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+  gap: 8px;
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.vocab-grid-container::-webkit-scrollbar {
+  width: 5px;
+}
+.vocab-grid-container::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.vocab-grid-box {
+  width: 100%;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: var(--radius-sm, 8px);
+  border: 1px solid var(--border-color);
+  background: var(--bg-glass, rgba(255, 255, 255, 0.03));
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.vocab-grid-box:hover {
+  transform: translateY(-2px);
+  border-color: var(--text-accent);
+  color: var(--text-primary);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
+}
+
+/* Box status states */
+.vocab-grid-box.current {
+  border: 2px solid #6366f1 !important;
+  background: rgba(99, 102, 241, 0.25) !important;
+  color: #818cf8 !important;
+  font-weight: 800;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+}
+
+.vocab-grid-box.correct {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #34d399;
+}
+
+.vocab-grid-box.incorrect {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #f87171;
+}
+
+.vocab-grid-box.current.correct {
+  border: 2px solid #10b981 !important;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.4);
+}
+
+.vocab-grid-box.current.incorrect {
+  border: 2px solid #ef4444 !important;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+}
+
+/* Legend below grid */
+.vocab-grid-legend {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.vocab-grid-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.vocab-grid-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.vocab-grid-legend-dot.current {
+  background: #6366f1;
+}
+.vocab-grid-legend-dot.correct {
+  background: #10b981;
+}
+.vocab-grid-legend-dot.incorrect {
+  background: #ef4444;
+}
+
+@media (max-width: 900px) {
+  .vocab-player-layout {
+    flex-direction: column;
+  }
+  .vocab-grid-sidebar {
+    width: 100%;
+    position: static;
+  }
+}
+
+
 
 
 

@@ -41,7 +41,10 @@ const QuizPlayer = (() => {
       }));
 
       const lightweightResults = results.map(r => ({
-        questionId: r.question?.id,
+        questionId: r.questionId || r.question?.id,
+        questionText: r.questionText || r.question?.question_text,
+        questionType: r.questionType || r.question?.question_type,
+        queueIndex: r.queueIndex,
         userAnswer: r.userAnswer,
         isCorrect: r.isCorrect,
         retries: r.retries
@@ -154,7 +157,10 @@ const QuizPlayer = (() => {
         queue: qtypeLightweightQueue,
         selectedQuestionType: qtype,
         results: qtypeResults.map(r => ({
-          questionId: r.question?.id,
+          questionId: r.questionId || r.question?.id,
+          questionText: r.questionText || r.question?.question_text,
+          questionType: r.questionType || r.question?.question_type,
+          queueIndex: r.queueIndex,
           userAnswer: r.userAnswer,
           isCorrect: r.isCorrect,
           retries: r.retries
@@ -207,7 +213,10 @@ const QuizPlayer = (() => {
         queue: allLightweightQueue,
         selectedQuestionType: 'all',
         results: results.map(r => ({
-          questionId: r.question?.id,
+          questionId: r.questionId || r.question?.id,
+          questionText: r.questionText || r.question?.question_text,
+          questionType: r.questionType || r.question?.question_type,
+          queueIndex: r.queueIndex,
           userAnswer: r.userAnswer,
           isCorrect: r.isCorrect,
           retries: r.retries
@@ -989,64 +998,130 @@ const QuizPlayer = (() => {
       questionTypeSelectorHTML = buildQuestionTypeSelector();
     }
 
-    main.innerHTML = `
-      <div class="quiz-player">
-        <div class="quiz-progress">
-          <div class="progress-bar-container">
-            <div class="progress-bar" style="width: ${progress}%"></div>
+    if (currentQuiz.quiz_type === 'vocabulary') {
+      const gridSidebarHTML = buildVocabGridHTML();
+      main.innerHTML = `
+        <div class="vocab-player-layout">
+          <div class="vocab-player-main">
+            <div class="quiz-progress">
+              <div class="progress-bar-container">
+                <div class="progress-bar" style="width: ${progress}%"></div>
+              </div>
+              <div class="progress-info">
+                <span>${I18n.t('play.questionOf', { current: currentIndex + 1, total })}</span>
+                <span class="retry-count" id="retry-display">
+                  🔄 ${I18n.t('play.retries')}: <span id="retry-count">${currentRetries}</span>
+                </span>
+              </div>
+            </div>
+
+            ${q.question_type && !isMcq ? `
+              <div class="vocab-hint-banner">
+                <span class="vocab-hint-icon">🎯</span>
+                <span class="vocab-hint-label">${I18n.t('play.typeHintLabel')}:</span>
+                <span class="vocab-hint-text">${I18n.t('qtype.' + q.question_type + '_desc')}</span>
+              </div>
+            ` : ''}
+
+            <div class="question-card" id="question-card" style="position: relative;">
+              <div class="question-card-header-chips" style="position: absolute; top: 16px; right: 16px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 60%; justify-content: flex-end; align-items: center;">
+                ${(q._failedTries && q._failedTries > 0) ? `
+                  <span class="retry-attempt-badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                    🔄 ${I18n.t('play.retryAttempt', { count: q._failedTries })}
+                  </span>
+                ` : ''}
+                ${answeredChips.map(ans => 
+                  `<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">✓ ${Components.escapeHtml(ans)}</span>`
+                ).join('')}
+              </div>
+              <div class="question-number" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span>${I18n.t('play.questionOf', { current: currentIndex + 1, total })}</span>
+                ${q.question_type && !isMcq ? `
+                  <span class="vocab-qtype-badge">🎯 ${I18n.t('qtype.' + q.question_type + '_desc')}</span>
+                ` : ''}
+              </div>
+              ${questionTextHTML}
+              ${mediaHTML}
+              ${answerInputHTML}
+              <div class="answer-feedback" id="answer-feedback"></div>
+              
+              <div class="auto-advance-bar-container" id="auto-advance-container">
+                <div class="auto-advance-bar" id="auto-advance-bar"></div>
+              </div>
+            </div>
+
+            ${questionTypeSelectorHTML}
           </div>
-          <div class="progress-info">
-            <span>${I18n.t('play.questionOf', { current: currentIndex + 1, total })}</span>
-            <span class="retry-count" id="retry-display">
-              🔄 ${I18n.t('play.retries')}: <span id="retry-count">${currentRetries}</span>
-            </span>
-          </div>
+          ${gridSidebarHTML}
         </div>
-
-        ${currentQuiz.quiz_type === 'vocabulary' && q.question_type && !isMcq ? `
-          <div class="vocab-hint-banner">
-            <span class="vocab-hint-icon">🎯</span>
-            <span class="vocab-hint-label">${I18n.t('play.typeHintLabel')}:</span>
-            <span class="vocab-hint-text">${I18n.t('qtype.' + q.question_type + '_desc')}</span>
-          </div>
-        ` : ''}
-
-        <div class="question-card" id="question-card" style="position: relative;">
-          <div class="question-card-header-chips" style="position: absolute; top: 16px; right: 16px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 60%; justify-content: flex-end; align-items: center;">
-            ${(q._failedTries && q._failedTries > 0) ? `
-              <span class="retry-attempt-badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
-                🔄 ${I18n.t('play.retryAttempt', { count: q._failedTries })}
+      `;
+    } else {
+      main.innerHTML = `
+        <div class="quiz-player">
+          <div class="quiz-progress">
+            <div class="progress-bar-container">
+              <div class="progress-bar" style="width: ${progress}%"></div>
+            </div>
+            <div class="progress-info">
+              <span>${I18n.t('play.questionOf', { current: currentIndex + 1, total })}</span>
+              <span class="retry-count" id="retry-display">
+                🔄 ${I18n.t('play.retries')}: <span id="retry-count">${currentRetries}</span>
               </span>
-            ` : ''}
-            ${answeredChips.map(ans => 
-              `<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">✓ ${Components.escapeHtml(ans)}</span>`
-            ).join('')}
+            </div>
           </div>
-          <div class="question-number" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-            <span>${I18n.t('play.questionOf', { current: currentIndex + 1, total })}</span>
-            ${currentQuiz.quiz_type === 'vocabulary' && q.question_type && !isMcq ? `
-              <span class="vocab-qtype-badge">🎯 ${I18n.t('qtype.' + q.question_type + '_desc')}</span>
-            ` : ''}
-          </div>
-          ${questionTextHTML}
-          ${mediaHTML}
-          ${answerInputHTML}
-          <div class="answer-feedback" id="answer-feedback"></div>
-          
-          <div class="auto-advance-bar-container" id="auto-advance-container">
-            <div class="auto-advance-bar" id="auto-advance-bar"></div>
+
+          <div class="question-card" id="question-card" style="position: relative;">
+            <div class="question-card-header-chips" style="position: absolute; top: 16px; right: 16px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 60%; justify-content: flex-end; align-items: center;">
+              ${(q._failedTries && q._failedTries > 0) ? `
+                <span class="retry-attempt-badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                  🔄 ${I18n.t('play.retryAttempt', { count: q._failedTries })}
+                </span>
+              ` : ''}
+              ${answeredChips.map(ans => 
+                `<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">✓ ${Components.escapeHtml(ans)}</span>`
+              ).join('')}
+            </div>
+            <div class="question-number" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span>${I18n.t('play.questionOf', { current: currentIndex + 1, total })}</span>
+            </div>
+            ${questionTextHTML}
+            ${mediaHTML}
+            ${answerInputHTML}
+            <div class="answer-feedback" id="answer-feedback"></div>
+            
+            <div class="auto-advance-bar-container" id="auto-advance-container">
+              <div class="auto-advance-bar" id="auto-advance-bar"></div>
+            </div>
           </div>
         </div>
-
-        ${questionTypeSelectorHTML}
-      </div>
-    `;
+      `;
+    }
 
     // Focus input if fill-in-the-blank
     if (!isMcq) {
       setTimeout(() => {
         document.getElementById('answer-input')?.focus();
       }, 100);
+    }
+
+    // Auto-scroll grid container to track active question box without jumping to top
+    if (currentQuiz && currentQuiz.quiz_type === 'vocabulary') {
+      setTimeout(() => {
+        const currentBox = document.querySelector('.vocab-grid-box.current');
+        const gridContainer = document.querySelector('.vocab-grid-container');
+        if (currentBox && gridContainer) {
+          const boxTop = currentBox.offsetTop;
+          const boxBottom = boxTop + currentBox.offsetHeight;
+          const containerTop = gridContainer.scrollTop;
+          const containerBottom = containerTop + gridContainer.clientHeight;
+
+          if (boxTop < containerTop) {
+            gridContainer.scrollTo({ top: Math.max(0, boxTop - 12), behavior: 'smooth' });
+          } else if (boxBottom > containerBottom) {
+            gridContainer.scrollTo({ top: boxBottom - gridContainer.clientHeight + 12, behavior: 'smooth' });
+          }
+        }
+      }, 50);
     }
   }
 
@@ -1234,6 +1309,91 @@ const QuizPlayer = (() => {
     renderQuestion();
   }
 
+  function jumpToQuestion(index) {
+    if (index < 0 || index >= questionsQueue.length) return;
+    if (index === currentIndex) return;
+    saveProgress();
+    currentIndex = index;
+    renderQuestion();
+  }
+
+  function buildVocabGridHTML() {
+    if (!currentQuiz || currentQuiz.quiz_type !== 'vocabulary') return '';
+
+    const targetList = questionsQueue;
+    if (!targetList || targetList.length === 0) return '';
+
+    const totalN = targetList.length;
+    let boxesHTML = '';
+
+    targetList.forEach((q, idx) => {
+      const isCurrent = idx === currentIndex;
+      
+      const res = results.find(r => 
+        (r.queueIndex !== undefined && r.queueIndex === idx) ||
+        r.question === q || 
+        (r.question && r.question === q) ||
+        ((r.questionId || r.question?.id) && String(r.questionId || r.question?.id) === String(q.id) && (r.questionType || r.question?.question_type) === q.question_type && ((r.questionText || r.question?.question_text) === q.question_text || r.queueIndex === idx))
+      );
+
+      let statusClass = 'pending';
+      let titleTooltip = `${I18n.t('play.questionOf', { current: idx + 1, total: totalN })}`;
+
+      if (res) {
+        statusClass = res.isCorrect ? 'correct' : 'incorrect';
+        titleTooltip += `: ${res.isCorrect ? I18n.t('play.correct') : I18n.t('play.incorrect')}`;
+      } else if (isCurrent) {
+        statusClass = 'current';
+        titleTooltip += ` (${I18n.t('play.current')})`;
+      }
+
+      if (isCurrent && res) {
+        statusClass += ' current';
+      }
+
+      const wordLabel = (q._word || q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
+      if (wordLabel) {
+        titleTooltip += ` - ${Components.escapeHtml(wordLabel)}`;
+      }
+
+      boxesHTML += `
+        <div class="vocab-grid-box ${statusClass}" 
+             title="${titleTooltip}"
+             onclick="QuizPlayer.jumpToQuestion(${idx})">
+          ${idx + 1}
+        </div>
+      `;
+    });
+
+    const answeredCount = results.length;
+
+    return `
+      <div class="vocab-grid-sidebar">
+        <div class="vocab-grid-header">
+          <span class="vocab-grid-title">📋 ${I18n.t('play.questionList')}</span>
+          <span class="vocab-grid-stats">${answeredCount}/${totalN}</span>
+        </div>
+        <div class="vocab-grid-container">
+          ${boxesHTML}
+        </div>
+        <div class="vocab-grid-legend">
+          <div class="vocab-grid-legend-item">
+            <div class="vocab-grid-legend-dot current"></div>
+            <span>${I18n.t('play.current')}</span>
+          </div>
+          <div class="vocab-grid-legend-item">
+            <div class="vocab-grid-legend-dot correct"></div>
+            <span>${I18n.t('results.correct')}</span>
+          </div>
+          <div class="vocab-grid-legend-item">
+            <div class="vocab-grid-legend-dot incorrect"></div>
+            <span>${I18n.t('results.incorrect')}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function submitMcqAnswer(btnEl, userAnswer) {
     if (answered) return;
     // Visually mark the selected option immediately
@@ -1300,6 +1460,10 @@ const QuizPlayer = (() => {
 
       results.push({
         question: q,
+        questionId: q.id,
+        questionText: q.question_text,
+        questionType: q.question_type,
+        queueIndex: currentIndex,
         userAnswer,
         isCorrect: true,
         retries: q._failedTries || 0,
@@ -1418,6 +1582,10 @@ const QuizPlayer = (() => {
       if (!willRetry) {
         results.push({
           question: q,
+          questionId: q.id,
+          questionText: q.question_text,
+          questionType: q.question_type,
+          queueIndex: currentIndex,
           userAnswer,
           isCorrect: false,
           retries: currentRetries,
@@ -1513,6 +1681,10 @@ const QuizPlayer = (() => {
     if (!willRetry) {
       results.push({
         question: q,
+        questionId: q.id,
+        questionText: q.question_text,
+        questionType: q.question_type,
+        queueIndex: currentIndex,
         userAnswer: I18n.t('play.dontRememberLabel'),
         isCorrect: false,
         retries: currentRetries,
@@ -1753,6 +1925,7 @@ const QuizPlayer = (() => {
     filterResults,
     filterByQuestionType,
     handleDontRemember,
+    jumpToQuestion,
   };
 })();
 
