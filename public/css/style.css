@@ -2113,6 +2113,41 @@ button, input, select, textarea, a, .card, .mode-btn, .qtype-chip, .mcq-option {
   }
 }
 
+/* Mobile User Info Card inside Mobile Drawer Menu */
+.mobile-user-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.mobile-user-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-accent);
+}
+
+.mobile-logout-btn {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.mobile-logout-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+}
+
 @media (max-width: 768px) {
   .main-content {
     padding: 16px 12px;

@@ -103,6 +103,7 @@ const Auth = (() => {
 
   function updateNavUser() {
     const userContainer = document.getElementById('nav-user-container');
+    const mobileUserContainer = document.getElementById('mobile-nav-user-container');
     const navbarActions = document.querySelector('.navbar-actions');
     const navbarToggle = document.getElementById('navbar-toggle');
 
@@ -118,11 +119,22 @@ const Auth = (() => {
           </div>
         `;
       }
+      if (mobileUserContainer) {
+        mobileUserContainer.innerHTML = `
+          <div class="mobile-user-card">
+            <span class="mobile-user-name">👤 ${Components.escapeHtml(currentUser.username)}</span>
+            <button class="mobile-logout-btn" onclick="Auth.logout(); if(window.App && typeof App.toggleMobileMenu === 'function') App.toggleMobileMenu();">
+              ${I18n.t('auth.logout')}
+            </button>
+          </div>
+        `;
+      }
     } else {
       document.body.classList.add('logged-out');
       if (navbarActions) navbarActions.style.setProperty('display', 'none', 'important');
       if (navbarToggle) navbarToggle.style.setProperty('display', 'none', 'important');
       if (userContainer) userContainer.innerHTML = '';
+      if (mobileUserContainer) mobileUserContainer.innerHTML = '';
     }
   }
 
