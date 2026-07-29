@@ -16,6 +16,12 @@ const Auth = (() => {
   }
 
   function getUser() {
+    if (!currentUser) {
+      try {
+        const storedUser = localStorage.getItem('quizmaster-user');
+        if (storedUser) currentUser = JSON.parse(storedUser);
+      } catch (e) {}
+    }
     return currentUser;
   }
 
@@ -27,6 +33,9 @@ const Auth = (() => {
     currentUser = userObj;
     token = tokenStr;
     clearAuthModals();
+    if (window.QuizPlayer && typeof QuizPlayer.clearInMemoryState === 'function') {
+      QuizPlayer.clearInMemoryState();
+    }
     if (userObj && tokenStr) {
       localStorage.setItem('quizmaster-user', JSON.stringify(userObj));
       localStorage.setItem('quizmaster-token', tokenStr);
@@ -150,10 +159,6 @@ const Auth = (() => {
               ${isLogin ? I18n.t('auth.registerLink') : I18n.t('auth.loginLink')}
             </a>
           </div>
-
-          <div style="text-align: center; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border-color); font-size: 13px; color: var(--text-muted);">
-            ${I18n.t('auth.defaultNotice')}
-          </div>
         </div>
       </div>
     `;
@@ -246,6 +251,7 @@ const Auth = (() => {
   return {
     getToken,
     getUser,
+    getCurrentUser: getUser,
     isLoggedIn,
     setSession,
     checkAuth,
@@ -256,3 +262,5 @@ const Auth = (() => {
     logout
   };
 })();
+
+window.Auth = Auth;

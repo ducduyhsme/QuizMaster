@@ -120,11 +120,20 @@ async function initDatabase() {
   // 5. User Settings Table
   db.run(`
     CREATE TABLE IF NOT EXISTS user_settings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER PRIMARY KEY,
+      settings_data TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  // 6. User Auth Sessions Table (Persistent auth tokens across server restarts)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_sessions (
+      token TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL,
-      key TEXT NOT NULL,
-      value TEXT NOT NULL,
-      UNIQUE(user_id, key),
+      username TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
@@ -495,6 +504,25 @@ const sessions = {
   }
 };
 
+const userSessions = {
+  save(token, userId, username) {
+    runSql('INSERT OR REPLACE INTO user_sessions (token, user_id, username) VALUES (?, ?, ?)', [token, userId, username]);
+  },
+  get(token) {
+    const row = queryOne('SELECT token, user_id, username FROM user_sessions WHERE token = ?', [token]);
+    if (row) {
+      return { userId: row.user_id, username: row.username };
+    }
+    return null;
+  },
+  delete(token) {
+    runSql('DELETE FROM user_sessions WHERE token = ?', [token]);
+  },
+  deleteByUser(userId) {
+    runSql('DELETE FROM user_sessions WHERE user_id = ?', [userId]);
+  }
+};
+
 module.exports = {
   initDatabase,
   generateUniqueCode,
@@ -502,6 +530,7 @@ module.exports = {
   quizzes,
   questions,
   sessions,
+  userSessions,
   bulkInsertQuestions,
   ensureWrongQuizForUser
 };

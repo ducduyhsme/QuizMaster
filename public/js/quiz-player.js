@@ -17,9 +17,42 @@ const QuizPlayer = (() => {
   let selectedQuestionType = 'all';
   let currentPlayMode = localStorage.getItem('quizmaster-play-mode') || localStorage.getItem('quizmaster-dashboard-mode') || 'question';
   let cachedPlayQuizzes = null;
-  let cachedTypeCounts = null;
+  function getCurrentUserObj() {
+    if (typeof Auth !== 'undefined' && typeof Auth.getUser === 'function') {
+      const u = Auth.getUser();
+      if (u) return u;
+    }
+    if (window.Auth && typeof window.Auth.getUser === 'function') {
+      const u = window.Auth.getUser();
+      if (u) return u;
+    }
+    try {
+      const stored = localStorage.getItem('quizmaster-user');
+      if (stored) return JSON.parse(stored);
+    } catch (e) {}
+    return null;
+  }
 
-  const PROGRESS_KEY_PREFIX = 'quizmaster-progress-';
+  function getCurrentUserId() {
+    const user = getCurrentUserObj();
+    return (user && (user.id || user.userId)) ? Number(user.id || user.userId) : 1;
+  }
+
+  function getProgressKeyPrefix() {
+    const uid = getCurrentUserId();
+    return `quizmaster-progress-u${uid}-`;
+  }
+
+  function clearInMemoryState() {
+    currentQuiz = null;
+    questionsQueue = [];
+    results = [];
+    questionStates = [];
+    usedAnswers = {};
+    selectedQuestionType = 'all';
+    deletedQtypesSet.clear();
+  }
+
   let saveProgressTimer = null;
 
   const deletedQtypesSet = new Set();
@@ -77,9 +110,9 @@ const QuizPlayer = (() => {
         updatedAt: Date.now()
       };
 
-      localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id + '_' + effectiveQtype, JSON.stringify(progressData));
+      localStorage.setItem(getProgressKeyPrefix() + currentQuiz.id + '_' + effectiveQtype, JSON.stringify(progressData));
       if (effectiveQtype === 'all') {
-        localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id, JSON.stringify(progressData));
+        localStorage.setItem(getProgressKeyPrefix() + currentQuiz.id, JSON.stringify(progressData));
       }
 
       const payload = JSON.stringify({
@@ -181,7 +214,7 @@ const QuizPlayer = (() => {
         updatedAt: Date.now()
       };
 
-      localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id + '_' + qtype, JSON.stringify(qtypeProgressData));
+      localStorage.setItem(getProgressKeyPrefix() + currentQuiz.id + '_' + qtype, JSON.stringify(qtypeProgressData));
 
       const payload = JSON.stringify({
         quizId: currentQuiz.id,
@@ -238,8 +271,8 @@ const QuizPlayer = (() => {
         updatedAt: Date.now()
       };
 
-      localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id + '_all', JSON.stringify(allProgressData));
-      localStorage.setItem(PROGRESS_KEY_PREFIX + currentQuiz.id, JSON.stringify(allProgressData));
+      localStorage.setItem(getProgressKeyPrefix() + currentQuiz.id + '_all', JSON.stringify(allProgressData));
+      localStorage.setItem(getProgressKeyPrefix() + currentQuiz.id, JSON.stringify(allProgressData));
 
       const payloadAll = JSON.stringify({
         quizId: currentQuiz.id,
@@ -266,9 +299,18 @@ const QuizPlayer = (() => {
 
   function getSavedProgress(quizId, targetQtype = null) {
     try {
+      const currentUserId = getCurrentUserId();
+
       if (targetQtype && targetQtype !== 'all') {
         if (deletedQtypesSet.has(quizId + '_' + targetQtype)) return null;
-        const qData = localStorage.getItem(PROGRESS_KEY_PREFIX + quizId + '_' + targetQtype);
+        let qData = localStorage.getItem(getProgressKeyPrefix() + quizId + '_' + targetQtype);
+        if (!qData && currentUserId === 1) {
+          // Fallback check for legacy un-namespaced key ONLY for Admin
+          qData = localStorage.getItem('quizmaster-progress-' + quizId + '_' + targetQtype);
+          if (qData) {
+            localStorage.setItem(getProgressKeyPrefix() + quizId + '_' + targetQtype, qData);
+          }
+        }
         if (qData) {
           try {
             const parsed = JSON.parse(qData);
@@ -279,7 +321,14 @@ const QuizPlayer = (() => {
 
       if (targetQtype === 'all') {
         if (deletedQtypesSet.has(quizId + '_all')) return null;
-        const allData = localStorage.getItem(PROGRESS_KEY_PREFIX + quizId + '_all') || localStorage.getItem(PROGRESS_KEY_PREFIX + quizId);
+        let allData = localStorage.getItem(getProgressKeyPrefix() + quizId + '_all') || localStorage.getItem(getProgressKeyPrefix() + quizId);
+        if (!allData && currentUserId === 1) {
+          // Fallback check for legacy un-namespaced keys ONLY for Admin
+          allData = localStorage.getItem('quizmaster-progress-' + quizId + '_all') || localStorage.getItem('quizmaster-progress-' + quizId);
+          if (allData) {
+            localStorage.setItem(getProgressKeyPrefix() + quizId + '_all', allData);
+          }
+        }
         if (allData) {
           try {
             const parsed = JSON.parse(allData);
@@ -290,7 +339,7 @@ const QuizPlayer = (() => {
 
       if (!targetQtype) {
         let best = null;
-        const prefix = PROGRESS_KEY_PREFIX + quizId;
+        const prefix = getProgressKeyPrefix() + quizId;
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
           if (key && key.startsWith(prefix)) {
@@ -339,15 +388,15 @@ const QuizPlayer = (() => {
     const deleteKey = quizId + '_' + effectiveQtype;
     deletedQtypesSet.add(deleteKey);
 
-    localStorage.removeItem(PROGRESS_KEY_PREFIX + quizId + '_' + effectiveQtype);
+    localStorage.removeItem(getProgressKeyPrefix() + quizId + '_' + effectiveQtype);
 
     if (effectiveQtype === 'all') {
       deletedQtypesSet.add(quizId + '_all');
-      localStorage.removeItem(PROGRESS_KEY_PREFIX + quizId + '_all');
-      localStorage.removeItem(PROGRESS_KEY_PREFIX + quizId);
+      localStorage.removeItem(getProgressKeyPrefix() + quizId + '_all');
+      localStorage.removeItem(getProgressKeyPrefix() + quizId);
     } else {
       // Clean up targetQtype results from 'all' session in localStorage if present
-      ['quizmaster-progress-' + quizId + '_all', 'quizmaster-progress-' + quizId].forEach(allKey => {
+      [getProgressKeyPrefix() + quizId + '_all', getProgressKeyPrefix() + quizId].forEach(allKey => {
         const rawAll = localStorage.getItem(allKey);
         if (rawAll) {
           try {
@@ -653,10 +702,10 @@ const QuizPlayer = (() => {
 
       try {
         if (effectiveQtype === 'all') {
-          localStorage.setItem(PROGRESS_KEY_PREFIX + quizId, JSON.stringify(saved));
+          localStorage.setItem(getProgressKeyPrefix() + quizId, JSON.stringify(saved));
         }
         if (effectiveQtype) {
-          localStorage.setItem(PROGRESS_KEY_PREFIX + quizId + '_' + effectiveQtype, JSON.stringify(saved));
+          localStorage.setItem(getProgressKeyPrefix() + quizId + '_' + effectiveQtype, JSON.stringify(saved));
         }
       } catch (e) {}
 
@@ -2023,6 +2072,7 @@ const QuizPlayer = (() => {
     filterByQuestionType,
     handleDontRemember,
     jumpToQuestion,
+    clearInMemoryState
   };
 })();
 

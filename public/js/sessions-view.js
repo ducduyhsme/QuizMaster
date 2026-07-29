@@ -2,6 +2,32 @@ const SessionsView = (() => {
   const containerId = 'main-content';
   const sessionDataStore = new Map();
 
+  function getCurrentUserObj() {
+    if (typeof Auth !== 'undefined' && typeof Auth.getUser === 'function') {
+      const u = Auth.getUser();
+      if (u) return u;
+    }
+    if (window.Auth && typeof window.Auth.getUser === 'function') {
+      const u = window.Auth.getUser();
+      if (u) return u;
+    }
+    try {
+      const stored = localStorage.getItem('quizmaster-user');
+      if (stored) return JSON.parse(stored);
+    } catch (e) {}
+    return null;
+  }
+
+  function getCurrentUserId() {
+    const user = getCurrentUserObj();
+    return (user && (user.id || user.userId)) ? Number(user.id || user.userId) : 1;
+  }
+
+  function getProgressKeyPrefix() {
+    const uid = getCurrentUserId();
+    return `quizmaster-progress-u${uid}-`;
+  }
+
   const QTYPE_NAMES = {
     fill_word_meaning: 'Từ ➔ Nghĩa (Điền từ)',
     mcq_word_meaning: 'Từ ➔ Nghĩa (Trắc nghiệm)',
@@ -52,9 +78,17 @@ const SessionsView = (() => {
       });
     });
 
+    const currentUserId = getCurrentUserId();
+    const userPrefix = getProgressKeyPrefix();
+
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (!key || !key.startsWith('quizmaster-progress-')) continue;
+      if (!key) continue;
+
+      const isUserKey = key.startsWith(userPrefix);
+      const isLegacyKey = (currentUserId === 1) && !isUserKey && key.startsWith('quizmaster-progress-') && !key.startsWith('quizmaster-progress-u');
+
+      if (!isUserKey && !isLegacyKey) continue;
 
       try {
         const parsed = JSON.parse(localStorage.getItem(key));
@@ -62,11 +96,17 @@ const SessionsView = (() => {
 
         const quizId = Number(parsed.quizId);
         let qtype = parsed.selectedQuestionType || 'all';
-        const prefix = 'quizmaster-progress-' + quizId;
-        if (key === prefix || key === prefix + '_all') {
+        const keyPrefix = isUserKey ? (userPrefix + quizId) : ('quizmaster-progress-' + quizId);
+
+        if (key === keyPrefix || key === keyPrefix + '_all') {
           qtype = 'all';
-        } else if (key.startsWith(prefix + '_')) {
-          qtype = key.substring(prefix.length + 1);
+        } else if (key.startsWith(keyPrefix + '_')) {
+          qtype = key.substring(keyPrefix.length + 1);
+        }
+
+        if (isLegacyKey) {
+          const migratedKey = userPrefix + quizId + '_' + qtype;
+          localStorage.setItem(migratedKey, JSON.stringify(parsed));
         }
 
         if (!groupsMap.has(quizId)) {
@@ -164,18 +204,32 @@ const SessionsView = (() => {
           sessionsMap.set(s.qtype, { ...s });
         });
 
-        const prefix = 'quizmaster-progress-' + quizId;
+        const currentUserId = getCurrentUserId();
+        const userPrefix = getProgressKeyPrefix();
+        const prefix = userPrefix + quizId;
+        const legacyPrefix = 'quizmaster-progress-' + quizId;
+
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
-          if (key && (key === prefix || key.startsWith(prefix + '_'))) {
+          if (!key) continue;
+
+          const isUserKey = key === prefix || key.startsWith(prefix + '_');
+          const isLegacyKey = (currentUserId === 1) && (key === legacyPrefix || (key.startsWith(legacyPrefix + '_') && !key.startsWith('quizmaster-progress-u')));
+
+          if (isUserKey || isLegacyKey) {
             try {
               const parsed = JSON.parse(localStorage.getItem(key));
               if (parsed && Number(parsed.quizId) === Number(quizId)) {
                 let qtype = parsed.selectedQuestionType || 'all';
-                if (key === prefix + '_all' || key === prefix) {
+                const curPrefix = isUserKey ? prefix : legacyPrefix;
+                if (key === curPrefix + '_all' || key === curPrefix) {
                   qtype = 'all';
-                } else if (key.startsWith(prefix + '_')) {
-                  qtype = key.substring(prefix.length + 1);
+                } else if (key.startsWith(curPrefix + '_')) {
+                  qtype = key.substring(curPrefix.length + 1);
+                }
+
+                if (isLegacyKey) {
+                  localStorage.setItem(prefix + '_' + qtype, JSON.stringify(parsed));
                 }
 
                 const localIndex = parsed.currentIndex !== undefined ? parsed.currentIndex : (parsed.currentQuestionIndex || 0);
@@ -278,7 +332,7 @@ const SessionsView = (() => {
 
       container.innerHTML = `
         <div class="page-header">
-          <h1>🎮 ${I18n.t('sessions.title')}</h1>
+          <h1>${I18n.t('sessions.title')}</h1>
           <p>${I18n.t('sessions.subtitle')}</p>
         </div>
 
@@ -290,7 +344,7 @@ const SessionsView = (() => {
     } catch (err) {
       container.innerHTML = `
         <div class="page-header">
-          <h1>🎮 ${I18n.t('sessions.title')}</h1>
+          <h1>${I18n.t('sessions.title')}</h1>
         </div>
         <div class="card text-center" style="padding: 32px; color: #ef4444;">
           ⚠️ ${Components.escapeHtml(err.message)}
@@ -375,10 +429,10 @@ const SessionsView = (() => {
         if (window.QuizPlayer && typeof QuizPlayer.clearSavedProgress === 'function') {
           await QuizPlayer.clearSavedProgress(quizId, qtype);
         } else {
-          localStorage.removeItem('quizmaster-progress-' + quizId + '_' + qtype);
+          localStorage.removeItem(getProgressKeyPrefix() + quizId + '_' + qtype);
           if (qtype === 'all') {
-            localStorage.removeItem('quizmaster-progress-' + quizId + '_all');
-            localStorage.removeItem('quizmaster-progress-' + quizId);
+            localStorage.removeItem(getProgressKeyPrefix() + quizId + '_all');
+            localStorage.removeItem(getProgressKeyPrefix() + quizId);
           }
           await fetch(`/api/sessions/quiz/${quizId}/qtype/${qtype}`, { method: 'DELETE' }).catch(e => {});
         }
@@ -406,10 +460,10 @@ const SessionsView = (() => {
 
     const { quizId, qtype, qtypeName, sessionData } = entry;
     if (quizId && qtype && sessionData) {
-      const key = 'quizmaster-progress-' + quizId + '_' + (qtype === 'all' ? 'all' : qtype);
+      const key = getProgressKeyPrefix() + quizId + '_' + (qtype === 'all' ? 'all' : qtype);
       localStorage.setItem(key, JSON.stringify(sessionData));
       if (qtype === 'all') {
-        localStorage.setItem('quizmaster-progress-' + quizId, JSON.stringify(sessionData));
+        localStorage.setItem(getProgressKeyPrefix() + quizId, JSON.stringify(sessionData));
       }
     }
 

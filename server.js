@@ -12,6 +12,7 @@ const {
   quizzes,
   questions,
   sessions,
+  userSessions,
   bulkInsertQuestions,
   ensureWrongQuizForUser
 } = require('./database');
@@ -105,9 +106,18 @@ function authenticate(req, res, next) {
     token = req.query.token;
   }
 
-  if (token && activeSessions.has(token)) {
-    req.user = activeSessions.get(token);
-    return next();
+  if (token) {
+    if (activeSessions.has(token)) {
+      req.user = activeSessions.get(token);
+      return next();
+    }
+    // Check persistent DB user_sessions table
+    const dbSession = userSessions.get(token);
+    if (dbSession) {
+      activeSessions.set(token, dbSession);
+      req.user = dbSession;
+      return next();
+    }
   }
 
   if (req.body && req.body.userId) {
@@ -151,6 +161,7 @@ app.post('/api/auth/register', (req, res) => {
     const token = crypto.randomBytes(24).toString('hex');
     const sessionObj = { userId: user.id, username: user.username };
     activeSessions.set(token, sessionObj);
+    userSessions.save(token, user.id, user.username);
 
     res.status(201).json({ user: sessionObj, token });
   } catch (err) {
@@ -173,6 +184,7 @@ app.post('/api/auth/login', (req, res) => {
     const token = crypto.randomBytes(24).toString('hex');
     const sessionObj = { userId: user.id, username: user.username };
     activeSessions.set(token, sessionObj);
+    userSessions.save(token, user.id, user.username);
 
     res.json({ user: sessionObj, token });
   } catch (err) {
@@ -190,6 +202,7 @@ app.post('/api/auth/logout', (req, res) => {
   }
   if (token) {
     activeSessions.delete(token);
+    userSessions.delete(token);
   }
   res.json({ success: true });
 });
