@@ -216,7 +216,7 @@ const SessionsView = (() => {
           const timeStr = new Date(sUpdatedAt).toLocaleString(I18n.getLang() === 'vi' ? 'vi-VN' : 'en-US');
 
           return `
-            <div class="session-file-item card" style="margin-bottom: 12px; border-left: 4px solid var(--text-accent); padding: 16px;">
+            <div class="session-file-item card" id="session-item-${quizId}-${s.qtype}" style="margin-bottom: 12px; border-left: 4px solid var(--text-accent); padding: 16px;">
               <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
                 <div style="flex: 1; min-width: 200px;">
                   <div style="display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--text-primary); font-size: 15px;">
@@ -349,8 +349,27 @@ const SessionsView = (() => {
     }
   }
 
-  async function deleteSession(sessionId, quizId = null, qtype = null) {
-    if (!confirm(I18n.t('sessions.deleteConfirm'))) return;
+  const pendingDeletions = new Map();
+  let pendingIdCounter = 0;
+
+  window.addEventListener('beforeunload', () => commitAllPendingDeletions());
+  window.addEventListener('pagehide', () => commitAllPendingDeletions());
+
+  function commitAllPendingDeletions() {
+    pendingDeletions.forEach((entry, deleteId) => {
+      commitDelete(deleteId);
+    });
+  }
+
+  async function commitDelete(deleteId) {
+    const entry = pendingDeletions.get(deleteId);
+    if (!entry) return;
+
+    if (entry.timerId) clearInterval(entry.timerId);
+    if (entry.toastEl) entry.toastEl.remove();
+    pendingDeletions.delete(deleteId);
+
+    const { sessionId, quizId, qtype } = entry;
     try {
       if (quizId && qtype) {
         if (window.QuizPlayer && typeof QuizPlayer.clearSavedProgress === 'function') {
@@ -361,28 +380,129 @@ const SessionsView = (() => {
             localStorage.removeItem('quizmaster-progress-' + quizId + '_all');
             localStorage.removeItem('quizmaster-progress-' + quizId);
           }
-          await fetch(`/api/sessions/quiz/${quizId}/qtype/${qtype}`, { method: 'DELETE' });
+          await fetch(`/api/sessions/quiz/${quizId}/qtype/${qtype}`, { method: 'DELETE' }).catch(e => {});
         }
       } else if (sessionId && sessionId > 0) {
         const res = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error(I18n.t('common.error'));
-        const data = await res.json();
-        if (data.quizId && data.qtype && window.QuizPlayer && typeof QuizPlayer.clearSavedProgress === 'function') {
-          await QuizPlayer.clearSavedProgress(data.quizId, data.qtype);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.quizId && data.qtype && window.QuizPlayer && typeof QuizPlayer.clearSavedProgress === 'function') {
+            await QuizPlayer.clearSavedProgress(data.quizId, data.qtype);
+          }
         }
       }
-      Components.showToast(I18n.t('sessions.deleted'), 'success');
-      await render();
-    } catch (err) {
-      Components.showToast(err.message, 'error');
+    } catch (e) {
+      console.error('Error committing deletion:', e);
     }
+  }
+
+  function undoDelete(deleteId) {
+    const entry = pendingDeletions.get(deleteId);
+    if (!entry) return;
+
+    if (entry.timerId) clearInterval(entry.timerId);
+    if (entry.toastEl) entry.toastEl.remove();
+    pendingDeletions.delete(deleteId);
+
+    const { quizId, qtype, qtypeName, sessionData } = entry;
+    if (quizId && qtype && sessionData) {
+      const key = 'quizmaster-progress-' + quizId + '_' + (qtype === 'all' ? 'all' : qtype);
+      localStorage.setItem(key, JSON.stringify(sessionData));
+      if (qtype === 'all') {
+        localStorage.setItem('quizmaster-progress-' + quizId, JSON.stringify(sessionData));
+      }
+    }
+
+    const restoredMsg = I18n.t('common.restored', { name: qtypeName }) || `Đã khôi phục ${qtypeName}`;
+    Components.showToast('✅ ' + restoredMsg, 'success');
+    render();
+  }
+
+  function deleteSession(sessionId, quizId = null, qtype = null) {
+    pendingIdCounter++;
+    const deleteId = `del_${Date.now()}_${pendingIdCounter}`;
+
+    const qtypeName = getQtypeName(qtype);
+    const deletedTitle = I18n.t('sessions.deletedItem', { name: qtypeName }) || (I18n.getLang() === 'en' ? `Deleted ${qtypeName}` : `Đã xóa ${qtypeName}`);
+
+    let sessionData = sessionDataStore.get(`${quizId}_${qtype}`);
+    if (!sessionData && window.QuizPlayer && typeof QuizPlayer.getSavedProgress === 'function') {
+      sessionData = QuizPlayer.getSavedProgress(quizId, qtype);
+    }
+
+    // Hide target session item instantly from UI
+    let targetEl = null;
+    if (quizId && qtype) {
+      targetEl = document.getElementById(`session-item-${quizId}-${qtype}`);
+    } else if (sessionId) {
+      targetEl = document.getElementById(`session-item-${sessionId}`);
+    }
+    if (targetEl) {
+      targetEl.style.display = 'none';
+    }
+
+    let container = document.getElementById('toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'toast-container';
+      container.className = 'toast-container';
+      document.body.appendChild(container);
+    }
+
+    const undoText = I18n.t('common.undo') || 'Hoàn tác';
+    const closeText = I18n.t('common.close') || 'Đóng';
+
+    const toastEl = document.createElement('div');
+    toastEl.className = 'toast undo-toast';
+    toastEl.id = `undo-toast-${deleteId}`;
+    toastEl.innerHTML = `
+      <div class="undo-toast-header">
+        <span class="toast-icon">🗑️</span>
+        <span class="undo-toast-title">${Components.escapeHtml(deletedTitle)}</span>
+        <button class="undo-toast-close" onclick="SessionsView.commitDelete('${deleteId}')" title="${Components.escapeHtml(closeText)}">✕</button>
+      </div>
+      <div class="undo-toast-progress-bar">
+        <div class="undo-toast-progress-fill" id="undo-progress-${deleteId}" style="width: 100%;"></div>
+      </div>
+      <div class="undo-toast-footer">
+        <button class="btn btn-sm undo-btn" onclick="SessionsView.undoDelete('${deleteId}')">
+          ↩️ ${Components.escapeHtml(undoText)}
+        </button>
+      </div>
+    `;
+
+    container.appendChild(toastEl);
+
+    // Smooth progress fill animation shrinking from 100% to 0% over exactly 10 seconds
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const fillEl = document.getElementById(`undo-progress-${deleteId}`);
+        if (fillEl) fillEl.style.width = '0%';
+      }, 50);
+    });
+
+    const timerId = setTimeout(() => {
+      commitDelete(deleteId);
+    }, 10000);
+
+    pendingDeletions.set(deleteId, {
+      quizId,
+      qtype,
+      sessionId,
+      qtypeName,
+      sessionData,
+      timerId,
+      toastEl
+    });
   }
 
   return {
     render,
     toggleCollapse,
     resumeSession,
-    deleteSession
+    deleteSession,
+    undoDelete,
+    commitDelete
   };
 })();
 

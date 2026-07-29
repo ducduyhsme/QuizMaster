@@ -80,6 +80,7 @@ const I18n = (() => {
       'sessions.deleteTooltip': 'Xóa phiên chơi dở',
       'sessions.deleteConfirm': 'Bạn có chắc chắn muốn xóa phiên chơi dở này?',
       'sessions.deleted': 'Đã xóa phiên chơi dở',
+      'sessions.deletedItem': 'Đã xóa {name}',
       'sessions.totalInQuiz': 'Tổng cộng: {count} loại câu hỏi đang chơi dở',
       'sessions.collapse': 'Thu nhỏ',
       'sessions.expand': 'Mở rộng',
@@ -214,6 +215,8 @@ const I18n = (() => {
       'play.dontRememberLabel': 'Không nhớ',
       'play.questionList': 'Danh sách câu',
       'play.current': 'Hiện tại',
+      'common.undo': 'Hoàn tác',
+      'common.restored': 'Đã khôi phục {name}',
       'quiz.pinned': 'Ghim',
 
       // Results
@@ -408,6 +411,7 @@ const I18n = (() => {
       'sessions.deleteTooltip': 'Delete saved session',
       'sessions.deleteConfirm': 'Are you sure you want to delete this saved session?',
       'sessions.deleted': 'Session deleted',
+      'sessions.deletedItem': 'Deleted {name}',
       'sessions.totalInQuiz': 'Total: {count} in-progress question types',
       'sessions.collapse': 'Collapse',
       'sessions.expand': 'Expand',
@@ -542,6 +546,8 @@ const I18n = (() => {
       'play.dontRememberLabel': 'Don\'t remember',
       'play.questionList': 'Question List',
       'play.current': 'Current',
+      'common.undo': 'Undo',
+      'common.restored': 'Restored {name}',
       'quiz.pinned': 'Pinned',
 
       // Results
