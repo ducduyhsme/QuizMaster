@@ -17,6 +17,7 @@ const QuizPlayer = (() => {
   let selectedQuestionType = 'all';
   let currentPlayMode = localStorage.getItem('quizmaster-play-mode') || localStorage.getItem('quizmaster-dashboard-mode') || 'question';
   let cachedPlayQuizzes = null;
+  let isGridCollapsedOnMobile = true;
   function getCurrentUserObj() {
     if (typeof Auth !== 'undefined' && typeof Auth.getUser === 'function') {
       const u = Auth.getUser();
@@ -1098,9 +1099,7 @@ const QuizPlayer = (() => {
                  placeholder="${placeholderText}"
                  autocomplete="off" spellcheck="false"
                  onkeydown="if(event.key==='Enter' && !event.repeat){ event.preventDefault(); event.stopPropagation(); QuizPlayer.submitAnswer(); }">
-          <button class="answer-submit-btn" id="submit-btn" onclick="QuizPlayer.submitAnswer()">
-            ${I18n.t('play.submit')}
-          </button>
+          <button class="answer-submit-btn" id="submit-btn" onclick="QuizPlayer.submitAnswer()">${I18n.t('play.submit')}</button>
           ${dontRememberBtnHTML}
         </div>
       `;
@@ -1129,30 +1128,23 @@ const QuizPlayer = (() => {
               </div>
             </div>
 
-            ${q.question_type && !isMcq ? `
-              <div class="vocab-hint-banner">
-                <span class="vocab-hint-icon">🎯</span>
-                <span class="vocab-hint-label">${I18n.t('play.typeHintLabel')}:</span>
-                <span class="vocab-hint-text">${I18n.t('qtype.' + q.question_type + '_desc')}</span>
-              </div>
-            ` : ''}
-
-            <div class="question-card" id="question-card" style="position: relative;">
-              <div class="question-card-header-chips" style="position: absolute; top: 16px; right: 16px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 60%; justify-content: flex-end; align-items: center;">
-                ${(q._failedTries && q._failedTries > 0) ? `
-                  <span class="retry-attempt-badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
-                    🔄 ${I18n.t('play.retryAttempt', { count: q._failedTries })}
-                  </span>
-                ` : ''}
-                ${answeredChips.map(ans => 
-                  `<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">✓ ${Components.escapeHtml(ans)}</span>`
-                ).join('')}
-              </div>
-              <div class="question-number" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                <span>${I18n.t('play.questionOf', { current: currentIndex + 1, total })}</span>
-                ${q.question_type && !isMcq ? `
-                  <span class="vocab-qtype-badge">🎯 ${I18n.t('qtype.' + q.question_type + '_desc')}</span>
-                ` : ''}
+            <div class="question-card" id="question-card">
+              <div class="question-card-top-row">
+                <div class="question-number">
+                  ${q.question_type && !isMcq ? `
+                    <span class="vocab-qtype-badge">🎯 ${I18n.t('qtype.' + q.question_type + '_desc')}</span>
+                  ` : `<span>${I18n.t('play.questionOf', { current: currentIndex + 1, total })}</span>`}
+                </div>
+                <div class="question-card-header-chips">
+                  ${(q._failedTries && q._failedTries > 0) ? `
+                    <span class="retry-attempt-badge">
+                      🔄 ${I18n.t('play.retryAttempt', { count: q._failedTries })}
+                    </span>
+                  ` : ''}
+                  ${answeredChips.map(ans => 
+                    `<span class="answered-chip">✓ ${Components.escapeHtml(ans)}</span>`
+                  ).join('')}
+                </div>
               </div>
               ${questionTextHTML}
               ${mediaHTML}
@@ -1184,19 +1176,21 @@ const QuizPlayer = (() => {
             </div>
           </div>
 
-          <div class="question-card" id="question-card" style="position: relative;">
-            <div class="question-card-header-chips" style="position: absolute; top: 16px; right: 16px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 60%; justify-content: flex-end; align-items: center;">
-              ${(q._failedTries && q._failedTries > 0) ? `
-                <span class="retry-attempt-badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
-                  🔄 ${I18n.t('play.retryAttempt', { count: q._failedTries })}
-                </span>
-              ` : ''}
-              ${answeredChips.map(ans => 
-                `<span style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">✓ ${Components.escapeHtml(ans)}</span>`
-              ).join('')}
-            </div>
-            <div class="question-number" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              <span>${I18n.t('play.questionOf', { current: currentIndex + 1, total })}</span>
+          <div class="question-card" id="question-card">
+            <div class="question-card-top-row">
+              <div class="question-number">
+                <span>${I18n.t('play.questionOf', { current: currentIndex + 1, total })}</span>
+              </div>
+              <div class="question-card-header-chips">
+                ${(q._failedTries && q._failedTries > 0) ? `
+                  <span class="retry-attempt-badge">
+                    🔄 ${I18n.t('play.retryAttempt', { count: q._failedTries })}
+                  </span>
+                ` : ''}
+                ${answeredChips.map(ans => 
+                  `<span class="answered-chip">✓ ${Components.escapeHtml(ans)}</span>`
+                ).join('')}
+              </div>
             </div>
             ${questionTextHTML}
             ${mediaHTML}
@@ -1512,30 +1506,40 @@ const QuizPlayer = (() => {
     const answeredCount = questionStates.filter(s => s.status === 'correct' || s.status === 'incorrect').length;
 
     return `
-      <div class="vocab-grid-sidebar">
-        <div class="vocab-grid-header">
-          <span class="vocab-grid-title">📋 ${I18n.t('play.questionList')}</span>
+      <div class="vocab-grid-sidebar ${isGridCollapsedOnMobile ? 'collapsed' : ''}">
+        <div class="vocab-grid-header" onclick="QuizPlayer.toggleGridCollapse()" title="Bấm để ẩn/hiện danh sách câu">
+          <span class="vocab-grid-title">📋 ${I18n.t('play.questionList')} <span class="grid-collapse-arrow">▼</span></span>
           <span class="vocab-grid-stats">${answeredCount}/${totalN}</span>
         </div>
-        <div class="vocab-grid-container">
-          ${boxesHTML}
-        </div>
-        <div class="vocab-grid-legend">
-          <div class="vocab-grid-legend-item">
-            <div class="vocab-grid-legend-dot current"></div>
-            <span>${I18n.t('play.current')}</span>
+        <div class="vocab-grid-collapsible-body">
+          <div class="vocab-grid-container">
+            ${boxesHTML}
           </div>
-          <div class="vocab-grid-legend-item">
-            <div class="vocab-grid-legend-dot correct"></div>
-            <span>${I18n.t('results.correct')}</span>
-          </div>
-          <div class="vocab-grid-legend-item">
-            <div class="vocab-grid-legend-dot incorrect"></div>
-            <span>${I18n.t('results.incorrect')}</span>
+          <div class="vocab-grid-legend">
+            <div class="vocab-grid-legend-item">
+              <div class="vocab-grid-legend-dot current"></div>
+              <span>${I18n.t('play.current')}</span>
+            </div>
+            <div class="vocab-grid-legend-item">
+              <div class="vocab-grid-legend-dot correct"></div>
+              <span>${I18n.t('results.correct')}</span>
+            </div>
+            <div class="vocab-grid-legend-item">
+              <div class="vocab-grid-legend-dot incorrect"></div>
+              <span>${I18n.t('results.incorrect')}</span>
+            </div>
           </div>
         </div>
       </div>
     `;
+  }
+
+  function toggleGridCollapse() {
+    isGridCollapsedOnMobile = !isGridCollapsedOnMobile;
+    const sidebar = document.querySelector('.vocab-grid-sidebar');
+    if (sidebar) {
+      sidebar.classList.toggle('collapsed', isGridCollapsedOnMobile);
+    }
   }
 
   function submitMcqAnswer(btnEl, userAnswer) {
@@ -2070,8 +2074,9 @@ const QuizPlayer = (() => {
     playTTS,
     filterResults,
     filterByQuestionType,
-    handleDontRemember,
-    jumpToQuestion,
+    buildFullVocabQuestions,
+    filterByQuestionType,
+    toggleGridCollapse,
     clearInMemoryState
   };
 })();
