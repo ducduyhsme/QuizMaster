@@ -134,6 +134,14 @@ body::before {
   z-index: 1000;
 }
 
+/* Hide all top navbar buttons and mobile toggle on login screen / logged-out state */
+body.logged-out .navbar-actions,
+body.logged-out .navbar-toggle,
+body.logged-out .mobile-menu,
+body.logged-out .mobile-menu-overlay {
+  display: none !important;
+}
+
 .navbar-brand {
   display: flex;
   align-items: center;

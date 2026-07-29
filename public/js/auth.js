@@ -103,24 +103,32 @@ const Auth = (() => {
 
   function updateNavUser() {
     const userContainer = document.getElementById('nav-user-container');
-    if (!userContainer) return;
+    const navbarActions = document.querySelector('.navbar-actions');
+    const navbarToggle = document.getElementById('navbar-toggle');
 
     if (isLoggedIn()) {
-      userContainer.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="font-size: 14px; font-weight: 600; color: var(--text-accent);">👤 ${Components.escapeHtml(currentUser.username)}</span>
-          <button class="btn btn-ghost btn-sm" onclick="Auth.logout()" style="padding: 4px 10px; font-size: 13px; cursor: pointer;">${I18n.t('auth.logout')}</button>
-        </div>
-      `;
+      document.body.classList.remove('logged-out');
+      if (navbarActions) navbarActions.style.removeProperty('display');
+      if (navbarToggle) navbarToggle.style.removeProperty('display');
+      if (userContainer) {
+        userContainer.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 14px; font-weight: 600; color: var(--text-accent);">👤 ${Components.escapeHtml(currentUser.username)}</span>
+            <button class="btn btn-ghost btn-sm" onclick="Auth.logout()" style="padding: 4px 10px; font-size: 13px; cursor: pointer;">${I18n.t('auth.logout')}</button>
+          </div>
+        `;
+      }
     } else {
-      userContainer.innerHTML = `
-        <button class="btn btn-primary btn-sm" onclick="Auth.renderLoginScreen('login')" style="cursor: pointer;">${I18n.t('auth.loginNav')}</button>
-      `;
+      document.body.classList.add('logged-out');
+      if (navbarActions) navbarActions.style.setProperty('display', 'none', 'important');
+      if (navbarToggle) navbarToggle.style.setProperty('display', 'none', 'important');
+      if (userContainer) userContainer.innerHTML = '';
     }
   }
 
   function renderLoginScreen(mode = 'login') {
     clearAuthModals();
+    updateNavUser();
     const main = document.getElementById('main-content');
     if (!main) return;
 
