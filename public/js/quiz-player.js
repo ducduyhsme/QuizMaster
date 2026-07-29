@@ -22,11 +22,17 @@ const QuizPlayer = (() => {
   const PROGRESS_KEY_PREFIX = 'quizmaster-progress-';
   let saveProgressTimer = null;
 
+  const deletedQtypesSet = new Set();
+
   function saveProgress() {
     if (!currentQuiz || !currentQuiz.id) return Promise.resolve();
     if (saveProgressTimer) clearTimeout(saveProgressTimer);
 
     const effectiveQtype = selectedQuestionType || 'all';
+    const deleteKey = currentQuiz.id + '_' + effectiveQtype;
+    if (deletedQtypesSet.has(deleteKey) || deletedQtypesSet.has(currentQuiz.id + '_all')) {
+      return Promise.resolve();
+    }
 
     try {
       // If question was just answered, save progress at next question index
@@ -123,7 +129,7 @@ const QuizPlayer = (() => {
     if (!pool || pool.length === 0) return;
     const activeAnsweredQuestion = answered ? questionsQueue[currentIndex] : null;
     const activeAnsweredAlreadyInResults = activeAnsweredQuestion
-      ? results.some(r => r.question && String(r.question.id) === String(activeAnsweredQuestion.id) && r.question.question_type === activeAnsweredQuestion.question_type)
+      ? results.some(r => (r.questionId || r.question?.id) && String(r.questionId || r.question?.id) === String(activeAnsweredQuestion.id) && (r.questionType || r.question?.question_type) === activeAnsweredQuestion.question_type)
       : false;
 
     const qtypesPresent = new Set();
@@ -132,10 +138,11 @@ const QuizPlayer = (() => {
     });
 
     qtypesPresent.forEach(qtype => {
+      if (deletedQtypesSet.has(currentQuiz.id + '_' + qtype)) return;
       const qtypeQuestions = pool.filter(q => q.question_type === qtype);
       if (qtypeQuestions.length === 0) return;
 
-      const qtypeResults = results.filter(r => r.question && r.question.question_type === qtype);
+      const qtypeResults = results.filter(r => (r.questionType || r.question?.question_type) === qtype);
       const qtypeStates = questionStates.filter(s => s.questionType === qtype);
       const activeAnsweredForQtype = activeAnsweredQuestion && activeAnsweredQuestion.question_type === qtype && !activeAnsweredAlreadyInResults;
       if (qtypeResults.length === 0 && !activeAnsweredForQtype && qtypeStates.length === 0) return;
@@ -260,6 +267,7 @@ const QuizPlayer = (() => {
   function getSavedProgress(quizId, targetQtype = null) {
     try {
       if (targetQtype && targetQtype !== 'all') {
+        if (deletedQtypesSet.has(quizId + '_' + targetQtype)) return null;
         const qData = localStorage.getItem(PROGRESS_KEY_PREFIX + quizId + '_' + targetQtype);
         if (qData) {
           try {
@@ -270,6 +278,7 @@ const QuizPlayer = (() => {
       }
 
       if (targetQtype === 'all') {
+        if (deletedQtypesSet.has(quizId + '_all')) return null;
         const allData = localStorage.getItem(PROGRESS_KEY_PREFIX + quizId + '_all') || localStorage.getItem(PROGRESS_KEY_PREFIX + quizId);
         if (allData) {
           try {
@@ -285,6 +294,8 @@ const QuizPlayer = (() => {
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
           if (key && key.startsWith(prefix)) {
+            const subType = key.substring(prefix.length + 1);
+            if (subType && deletedQtypesSet.has(quizId + '_' + subType)) continue;
             try {
               const parsed = JSON.parse(localStorage.getItem(key));
               if (parsed && (!best || (parsed.updatedAt || 0) > (best.updatedAt || 0))) {
@@ -321,17 +332,55 @@ const QuizPlayer = (() => {
   });
 
   function clearSavedProgress(quizId, targetQtype = null) {
-    if (!quizId) return;
+    if (!quizId) return Promise.resolve();
     if (saveProgressTimer) clearTimeout(saveProgressTimer);
 
     const effectiveQtype = targetQtype || selectedQuestionType || 'all';
+    const deleteKey = quizId + '_' + effectiveQtype;
+    deletedQtypesSet.add(deleteKey);
 
     localStorage.removeItem(PROGRESS_KEY_PREFIX + quizId + '_' + effectiveQtype);
+
     if (effectiveQtype === 'all') {
+      deletedQtypesSet.add(quizId + '_all');
+      localStorage.removeItem(PROGRESS_KEY_PREFIX + quizId + '_all');
       localStorage.removeItem(PROGRESS_KEY_PREFIX + quizId);
+    } else {
+      // Clean up targetQtype results from 'all' session in localStorage if present
+      ['quizmaster-progress-' + quizId + '_all', 'quizmaster-progress-' + quizId].forEach(allKey => {
+        const rawAll = localStorage.getItem(allKey);
+        if (rawAll) {
+          try {
+            const parsed = JSON.parse(rawAll);
+            if (parsed && Array.isArray(parsed.results)) {
+              const cleaned = parsed.results.filter(r => (r.questionType || r.question_type || r.question?.question_type) !== effectiveQtype);
+              if (cleaned.length === 0) {
+                localStorage.removeItem(allKey);
+              } else {
+                parsed.results = cleaned;
+                parsed.currentIndex = Math.min(cleaned.length, parsed.currentIndex || 0);
+                localStorage.setItem(allKey, JSON.stringify(parsed));
+              }
+            }
+          } catch (e) {}
+        }
+      });
     }
 
-    fetch(`/api/sessions/quiz/${quizId}/qtype/${effectiveQtype}`, { method: 'DELETE' }).catch(e => {});
+    if (currentQuiz && Number(currentQuiz.id) === Number(quizId)) {
+      if (effectiveQtype === 'all' || effectiveQtype === selectedQuestionType) {
+        currentQuiz = null;
+        questionsQueue = [];
+        results = [];
+        questionStates = [];
+        usedAnswers = {};
+      } else {
+        results = results.filter(r => (r.questionType || r.question_type || r.question?.question_type) !== effectiveQtype);
+        questionStates = questionStates.filter(s => s.questionType !== effectiveQtype);
+      }
+    }
+
+    return fetch(`/api/sessions/quiz/${quizId}/qtype/${effectiveQtype}`, { method: 'DELETE' }).catch(e => {});
   }
 
   function renderSelectScreen() {
@@ -623,7 +672,15 @@ const QuizPlayer = (() => {
       };
 
       selectedQuestionType = effectiveQtype;
-      results = saved.results || [];
+      results = (saved.results || []).map(r => ({
+        ...r,
+        question: r.question || {
+          id: r.questionId || r.question?.id,
+          question_text: r.questionText || r.question?.question_text,
+          question_type: r.questionType || r.question?.question_type,
+          correct_answer: r.userAnswer || ''
+        }
+      }));
       questionStates = Array.isArray(saved.questionStates) ? saved.questionStates : (saved.results || []).map(r => ({ key: String(r.questionId || r.question?.id) + '|' + (r.questionType || r.question?.question_type) + '|' + r.queueIndex, questionId: r.questionId || r.question?.id, questionType: r.questionType || r.question?.question_type, queueIndex: r.queueIndex, status: r.isCorrect ? 'correct' : 'incorrect' }));
       usedAnswers = saved.usedAnswers || {};
 
@@ -1309,9 +1366,25 @@ const QuizPlayer = (() => {
     if (settings.shuffleQuestions) {
       questionsQueue = shuffleArray(questionsQueue);
     }
-    currentIndex = 0;
-    results = [];
-    questionStates = [];
+    // Check if saved progress exists for this qtype
+    const saved = currentQuiz ? getSavedProgress(currentQuiz.id, type) : null;
+    if (saved && saved.results && saved.results.length > 0) {
+      results = (saved.results || []).map(r => ({
+        ...r,
+        question: r.question || {
+          id: r.questionId || r.question?.id,
+          question_text: r.questionText || r.question?.question_text,
+          question_type: r.questionType || r.question?.question_type,
+          correct_answer: r.userAnswer || ''
+        }
+      }));
+      questionStates = Array.isArray(saved.questionStates) ? saved.questionStates : [];
+      currentIndex = Math.min(saved.currentIndex !== undefined ? saved.currentIndex : (saved.currentQuestionIndex || 0), Math.max(0, questionsQueue.length - 1));
+    } else {
+      currentIndex = 0;
+      results = [];
+      questionStates = [];
+    }
     usedAnswers = {};
     renderQuestion();
   }

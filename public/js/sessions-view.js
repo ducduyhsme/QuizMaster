@@ -354,18 +354,25 @@ const SessionsView = (() => {
     try {
       if (quizId && qtype) {
         if (window.QuizPlayer && typeof QuizPlayer.clearSavedProgress === 'function') {
-          QuizPlayer.clearSavedProgress(quizId, qtype);
+          await QuizPlayer.clearSavedProgress(quizId, qtype);
         } else {
           localStorage.removeItem('quizmaster-progress-' + quizId + '_' + qtype);
-          if (qtype === 'all') localStorage.removeItem('quizmaster-progress-' + quizId);
-          await fetch(`/api/sessions/quiz/${quizId}/qtype/${qtype}`, { method: 'DELETE' }).catch(e => {});
+          if (qtype === 'all') {
+            localStorage.removeItem('quizmaster-progress-' + quizId + '_all');
+            localStorage.removeItem('quizmaster-progress-' + quizId);
+          }
+          await fetch(`/api/sessions/quiz/${quizId}/qtype/${qtype}`, { method: 'DELETE' });
         }
       } else if (sessionId && sessionId > 0) {
         const res = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(I18n.t('common.error'));
+        const data = await res.json();
+        if (data.quizId && data.qtype && window.QuizPlayer && typeof QuizPlayer.clearSavedProgress === 'function') {
+          await QuizPlayer.clearSavedProgress(data.quizId, data.qtype);
+        }
       }
       Components.showToast(I18n.t('sessions.deleted'), 'success');
-      render();
+      await render();
     } catch (err) {
       Components.showToast(err.message, 'error');
     }

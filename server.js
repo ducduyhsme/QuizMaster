@@ -717,8 +717,12 @@ app.post('/api/sessions/save', (req, res) => {
 
 app.delete('/api/sessions/:id', (req, res) => {
   try {
-    sessions.deleteById(parseInt(req.params.id), req.user.userId);
-    res.json({ success: true });
+    const deleted = sessions.deleteById(parseInt(req.params.id), req.user.userId);
+    res.json({
+      success: true,
+      quizId: deleted ? deleted.quiz_id : null,
+      qtype: deleted ? deleted.qtype : null
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -726,8 +730,10 @@ app.delete('/api/sessions/:id', (req, res) => {
 
 app.delete('/api/sessions/quiz/:quizId/qtype/:qtype', (req, res) => {
   try {
-    sessions.delete(req.user.userId, parseInt(req.params.quizId), req.params.qtype);
-    res.json({ success: true });
+    const quizId = parseInt(req.params.quizId);
+    const qtype = req.params.qtype;
+    sessions.delete(req.user.userId, quizId, qtype);
+    res.json({ success: true, quizId, qtype });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

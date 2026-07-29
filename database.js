@@ -461,11 +461,37 @@ const sessions = {
   },
 
   delete(userId, quizId, qtype) {
-    runSql('DELETE FROM game_sessions WHERE user_id = ? AND quiz_id = ? AND qtype = ?', [userId, quizId, qtype]);
+    if (qtype === 'all') {
+      runSql('DELETE FROM game_sessions WHERE user_id = ? AND quiz_id = ?', [userId, quizId]);
+    } else {
+      runSql('DELETE FROM game_sessions WHERE user_id = ? AND quiz_id = ? AND qtype = ?', [userId, quizId, qtype]);
+
+      // Clean up target qtype results from aggregate 'all' session in DB if present
+      const allSession = queryOne('SELECT id, session_data FROM game_sessions WHERE user_id = ? AND quiz_id = ? AND qtype = ?', [userId, quizId, 'all']);
+      if (allSession && allSession.session_data) {
+        try {
+          const parsed = JSON.parse(allSession.session_data);
+          if (parsed && Array.isArray(parsed.results)) {
+            const cleanedResults = parsed.results.filter(r => (r.questionType || r.question_type || r.question?.question_type) !== qtype);
+            if (cleanedResults.length === 0) {
+              runSql('DELETE FROM game_sessions WHERE id = ?', [allSession.id]);
+            } else {
+              parsed.results = cleanedResults;
+              parsed.currentIndex = Math.min(cleanedResults.length, parsed.currentIndex || 0);
+              runSql('UPDATE game_sessions SET session_data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [JSON.stringify(parsed), allSession.id]);
+            }
+          }
+        } catch (e) {}
+      }
+    }
   },
 
   deleteById(id, userId) {
-    runSql('DELETE FROM game_sessions WHERE id = ? AND user_id = ?', [id, userId]);
+    const existing = queryOne('SELECT quiz_id, qtype FROM game_sessions WHERE id = ? AND user_id = ?', [id, userId]);
+    if (existing) {
+      this.delete(userId, existing.quiz_id, existing.qtype);
+    }
+    return existing;
   }
 };
 
