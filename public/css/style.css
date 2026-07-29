@@ -2959,6 +2959,11 @@ body[data-theme="light"] .result-item:hover {
   }
 }
 
+/* --- Chinese Font (SimSun) Override (Applied ONLY to Question Text / Đề bài) --- */
+body[data-chinese-font="simsun"] .question-text {
+  font-family: 'SimSun', STSong, 'Songti SC', 'SimSun-ExtB', serif !important;
+}
+
 
 
 

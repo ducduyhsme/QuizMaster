@@ -12,6 +12,9 @@ const App = (() => {
     const savedTheme = localStorage.getItem('quizmaster-theme') || 'dark';
     setTheme(savedTheme);
 
+    const savedChineseFont = localStorage.getItem('quizmaster-chinese-font') || 'default';
+    setChineseFont(savedChineseFont);
+
     // Brand click goes to dashboard
     document.querySelector('.navbar-brand').addEventListener('click', () => {
       navigate('dashboard');
@@ -37,6 +40,19 @@ const App = (() => {
 
   function changeTheme(theme) {
     setTheme(theme);
+    renderSettings();
+    Components.showToast('✅ ' + I18n.t('create.saved'), 'success');
+  }
+
+  function setChineseFont(font) {
+    const val = font || 'default';
+    localStorage.setItem('quizmaster-chinese-font', val);
+    document.documentElement.setAttribute('data-chinese-font', val);
+    document.body.setAttribute('data-chinese-font', val);
+  }
+
+  function changeChineseFont(font) {
+    setChineseFont(font);
     renderSettings();
     Components.showToast('✅ ' + I18n.t('create.saved'), 'success');
   }
@@ -281,6 +297,7 @@ const App = (() => {
     const customSec = (autoAdvanceNum / 1000).toFixed(1);
     const currentLang = I18n.getLang();
     const currentTheme = localStorage.getItem('quizmaster-theme') || 'dark';
+    const currentChineseFont = localStorage.getItem('quizmaster-chinese-font') || 'default';
     const rawVolume = localStorage.getItem('quizmaster-volume');
     const currentVolume = rawVolume !== null ? parseFloat(rawVolume) : 0.5;
     const validVolume = isNaN(currentVolume) ? 0.5 : Math.max(0, Math.min(2.0, currentVolume));
@@ -304,6 +321,22 @@ const App = (() => {
                   onchange="App.changeTheme(this.value)">
             <option value="dark" ${currentTheme === 'dark' ? 'selected' : ''}>🌙 ${I18n.t('settings.themeDark')}</option>
             <option value="light" ${currentTheme === 'light' ? 'selected' : ''}>☀️ ${I18n.t('settings.themeLight')}</option>
+          </select>
+        </div>
+
+        <div class="toggle-group">
+          <div class="toggle-info">
+            <span class="toggle-label" data-i18n="settings.chineseFontLabel">${I18n.t('settings.chineseFontLabel')}</span>
+            <span class="toggle-desc" data-i18n="settings.chineseFontDesc">${I18n.t('settings.chineseFontDesc')}</span>
+          </div>
+          <select class="form-select" id="chinese-font-select" style="width: auto; min-width: 160px;"
+                  onchange="App.changeChineseFont(this.value)">
+            <option value="default" ${currentChineseFont === 'default' ? 'selected' : ''} data-i18n="settings.fontDefault">
+              ${I18n.t('settings.fontDefault')}
+            </option>
+            <option value="simsun" ${currentChineseFont === 'simsun' ? 'selected' : ''} data-i18n="settings.fontSimSun">
+              ${I18n.t('settings.fontSimSun')}
+            </option>
           </select>
         </div>
       </div>
@@ -734,6 +767,8 @@ const App = (() => {
     changeLang,
     changeTheme,
     setTheme,
+    changeChineseFont,
+    setChineseFont,
     changePassword,
     onVolumeChange,
     testVolume,
