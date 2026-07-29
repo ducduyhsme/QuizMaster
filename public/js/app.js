@@ -15,6 +15,14 @@ const App = (() => {
     const savedChineseFont = localStorage.getItem('quizmaster-chinese-font') || 'default';
     setChineseFont(savedChineseFont);
 
+    // Initialize SyncManager SSE listener
+    if (window.SyncManager && typeof SyncManager.init === 'function') {
+      SyncManager.init();
+    }
+
+    // Sync settings with server
+    syncSettingsWithServer();
+
     // Brand click goes to dashboard
     document.querySelector('.navbar-brand').addEventListener('click', () => {
       navigate('dashboard');
@@ -32,6 +40,63 @@ const App = (() => {
     handleRoute();
   }
 
+  async function syncSettingsWithServer() {
+    try {
+      const res = await fetch('/api/settings');
+      if (res.ok) {
+        const serverSettings = await res.json();
+        if (serverSettings && typeof serverSettings === 'object' && Object.keys(serverSettings).length > 0) {
+          if (serverSettings.shuffle !== undefined) localStorage.setItem('quizmaster-shuffle', serverSettings.shuffle);
+          if (serverSettings.swap !== undefined) localStorage.setItem('quizmaster-swap', serverSettings.swap);
+          if (serverSettings.allowDuplicates !== undefined) localStorage.setItem('quizmaster-allow-duplicates', serverSettings.allowDuplicates);
+          if (serverSettings.maxRetries !== undefined) localStorage.setItem('quizmaster-max-retries', serverSettings.maxRetries);
+          if (serverSettings.autoAdvance !== undefined) localStorage.setItem('quizmaster-auto-advance', serverSettings.autoAdvance);
+          if (serverSettings.theme !== undefined) {
+            setTheme(serverSettings.theme);
+          }
+          if (serverSettings.chineseFont !== undefined) {
+            setChineseFont(serverSettings.chineseFont);
+          }
+          if (serverSettings.lang !== undefined) {
+            I18n.setLang(serverSettings.lang);
+          }
+          if (serverSettings.volume !== undefined) {
+            localStorage.setItem('quizmaster-volume', serverSettings.volume);
+          }
+        } else {
+          pushLocalSettingsToServer();
+        }
+      }
+    } catch (e) {
+      console.warn('Unable to sync settings with server:', e);
+    }
+  }
+
+  function getLocalSettingsObj() {
+    return {
+      shuffle: localStorage.getItem('quizmaster-shuffle') === 'true',
+      swap: localStorage.getItem('quizmaster-swap') === 'true',
+      allowDuplicates: localStorage.getItem('quizmaster-allow-duplicates') === 'true',
+      maxRetries: localStorage.getItem('quizmaster-max-retries') || '-1',
+      autoAdvance: localStorage.getItem('quizmaster-auto-advance') || '1500',
+      theme: localStorage.getItem('quizmaster-theme') || 'dark',
+      chineseFont: localStorage.getItem('quizmaster-chinese-font') || 'default',
+      lang: I18n.getLang() || 'vi',
+      volume: localStorage.getItem('quizmaster-volume') !== null ? parseFloat(localStorage.getItem('quizmaster-volume')) : 0.5
+    };
+  }
+
+  async function pushLocalSettingsToServer() {
+    try {
+      const payload = getLocalSettingsObj();
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (e) {}
+  }
+
   function setTheme(theme) {
     localStorage.setItem('quizmaster-theme', theme);
     document.documentElement.setAttribute('data-theme', theme);
@@ -40,6 +105,7 @@ const App = (() => {
 
   function changeTheme(theme) {
     setTheme(theme);
+    pushLocalSettingsToServer();
     renderSettings();
     Components.showToast('✅ ' + I18n.t('create.saved'), 'success');
   }
@@ -53,6 +119,7 @@ const App = (() => {
 
   function changeChineseFont(font) {
     setChineseFont(font);
+    pushLocalSettingsToServer();
     renderSettings();
     Components.showToast('✅ ' + I18n.t('create.saved'), 'success');
   }
@@ -489,6 +556,7 @@ const App = (() => {
 
   function updateSetting(key, value) {
     localStorage.setItem(`quizmaster-${key}`, value);
+    pushLocalSettingsToServer();
     Components.showToast('✅ ' + I18n.t('create.saved'), 'success');
   }
 
@@ -540,6 +608,7 @@ const App = (() => {
     if (typeof Auth !== 'undefined' && typeof Auth.updateNavUser === 'function') {
       Auth.updateNavUser();
     }
+    pushLocalSettingsToServer();
     renderSettings();
     I18n.updateDOM();
     handleRoute();
@@ -549,6 +618,7 @@ const App = (() => {
     const num = parseFloat(val);
     const valid = isNaN(num) ? 0.5 : Math.max(0, Math.min(2.0, num));
     localStorage.setItem('quizmaster-volume', valid.toString());
+    pushLocalSettingsToServer();
     const display = document.getElementById('volume-value-display');
     if (display) display.textContent = Math.round(valid * 100) + '%';
   }
@@ -750,6 +820,8 @@ const App = (() => {
     handleRoute,
     renderDashboard,
     renderSettings,
+    syncSettingsWithServer,
+    pushLocalSettingsToServer,
     searchQuizzes,
     showCodeModal,
     submitCode,

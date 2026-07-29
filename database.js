@@ -523,6 +523,27 @@ const userSessions = {
   }
 };
 
+const userSettings = {
+  getByUserId(userId) {
+    const row = queryOne('SELECT settings_data FROM user_settings WHERE user_id = ?', [userId]);
+    if (row && row.settings_data) {
+      try {
+        return JSON.parse(row.settings_data);
+      } catch (e) {}
+    }
+    return null;
+  },
+  save(userId, settingsObj) {
+    const dataStr = typeof settingsObj === 'string' ? settingsObj : JSON.stringify(settingsObj);
+    const existing = queryOne('SELECT user_id FROM user_settings WHERE user_id = ?', [userId]);
+    if (existing) {
+      runSql('UPDATE user_settings SET settings_data = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?', [dataStr, userId]);
+    } else {
+      runSql('INSERT INTO user_settings (user_id, settings_data) VALUES (?, ?)', [userId, dataStr]);
+    }
+  }
+};
+
 module.exports = {
   initDatabase,
   generateUniqueCode,
@@ -530,6 +551,7 @@ module.exports = {
   quizzes,
   questions,
   sessions,
+  settings: userSettings,
   userSessions,
   bulkInsertQuestions,
   ensureWrongQuizForUser

@@ -12,6 +12,7 @@ const {
   quizzes,
   questions,
   sessions,
+  settings,
   userSessions,
   bulkInsertQuestions,
   ensureWrongQuizForUser
@@ -135,6 +136,90 @@ function authenticate(req, res, next) {
 }
 
 app.use(authenticate);
+
+// ============ Real-Time SSE Sync & User Settings APIs ============
+const sseClients = new Map();
+
+function broadcastToUser(userId, payload, excludeRes = null) {
+  const clients = sseClients.get(Number(userId));
+  if (!clients || clients.size === 0) return;
+  const message = `data: ${JSON.stringify(payload)}\n\n`;
+  for (const clientRes of clients) {
+    if (clientRes !== excludeRes) {
+      try {
+        clientRes.write(message);
+      } catch (e) {
+        clients.delete(clientRes);
+      }
+    }
+  }
+}
+
+app.get('/api/sync/events', (req, res) => {
+  const userId = req.user ? Number(req.user.userId) : null;
+  if (!userId) {
+    return res.status(401).end();
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (res.flushHeaders) res.flushHeaders();
+
+  if (!sseClients.has(userId)) {
+    sseClients.set(userId, new Set());
+  }
+  const userSet = sseClients.get(userId);
+  userSet.add(res);
+
+  res.write(`data: ${JSON.stringify({ type: 'CONNECTED', userId })}\n\n`);
+
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(': heartbeat\n\n');
+    } catch (e) {
+      clearInterval(heartbeat);
+    }
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    userSet.delete(res);
+    if (userSet.size === 0) {
+      sseClients.delete(userId);
+    }
+  });
+});
+
+app.get('/api/settings', (req, res) => {
+  try {
+    const userSet = settings.getByUserId(req.user.userId);
+    res.json(userSet || {});
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/settings', (req, res) => {
+  try {
+    const settingsData = req.body;
+    if (!settingsData || typeof settingsData !== 'object') {
+      return res.status(400).json({ error: 'Invalid settings object' });
+    }
+    settings.save(req.user.userId, settingsData);
+
+    broadcastToUser(req.user.userId, {
+      type: 'SETTINGS_UPDATED',
+      settings: settingsData,
+      updatedAt: Date.now()
+    }, res);
+
+    res.json({ success: true, settings: settingsData });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ============ Authentication APIs ============
 
@@ -722,6 +807,15 @@ app.post('/api/sessions/save', (req, res) => {
       return res.status(400).json({ error: 'quizId and sessionData are required' });
     }
     sessions.save(req.user.userId, parseInt(quizId), qtype, sessionData);
+
+    broadcastToUser(req.user.userId, {
+      type: 'SESSION_SAVED',
+      quizId: parseInt(quizId),
+      qtype,
+      sessionData,
+      updatedAt: Date.now()
+    }, res);
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -731,6 +825,15 @@ app.post('/api/sessions/save', (req, res) => {
 app.delete('/api/sessions/:id', (req, res) => {
   try {
     const deleted = sessions.deleteById(parseInt(req.params.id), req.user.userId);
+    if (deleted) {
+      broadcastToUser(req.user.userId, {
+        type: 'SESSION_DELETED',
+        quizId: deleted.quiz_id,
+        qtype: deleted.qtype,
+        sessionId: parseInt(req.params.id),
+        updatedAt: Date.now()
+      }, res);
+    }
     res.json({
       success: true,
       quizId: deleted ? deleted.quiz_id : null,
@@ -746,6 +849,14 @@ app.delete('/api/sessions/quiz/:quizId/qtype/:qtype', (req, res) => {
     const quizId = parseInt(req.params.quizId);
     const qtype = req.params.qtype;
     sessions.delete(req.user.userId, quizId, qtype);
+
+    broadcastToUser(req.user.userId, {
+      type: 'SESSION_DELETED',
+      quizId,
+      qtype,
+      updatedAt: Date.now()
+    }, res);
+
     res.json({ success: true, quizId, qtype });
   } catch (err) {
     res.status(500).json({ error: err.message });

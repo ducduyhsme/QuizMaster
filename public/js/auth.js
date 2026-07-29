@@ -39,9 +39,18 @@ const Auth = (() => {
     if (userObj && tokenStr) {
       localStorage.setItem('quizmaster-user', JSON.stringify(userObj));
       localStorage.setItem('quizmaster-token', tokenStr);
+      if (window.SyncManager && typeof SyncManager.init === 'function') {
+        SyncManager.init();
+      }
+      if (window.App && typeof App.syncSettingsWithServer === 'function') {
+        App.syncSettingsWithServer();
+      }
     } else {
       localStorage.removeItem('quizmaster-user');
       localStorage.removeItem('quizmaster-token');
+      if (window.SyncManager && typeof SyncManager.disconnect === 'function') {
+        SyncManager.disconnect();
+      }
     }
     updateNavUser();
   }
