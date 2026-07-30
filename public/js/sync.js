@@ -13,23 +13,11 @@ const SyncManager = (() => {
   }
 
   function getCurrentUserId() {
-    if (window.Auth && typeof window.Auth.getUser === 'function') {
-      const u = window.Auth.getUser();
-      if (u) return Number(u.id || u.userId);
-    }
-    try {
-      const stored = localStorage.getItem('quizmaster-user');
-      if (stored) {
-        const u = JSON.parse(stored);
-        if (u) return Number(u.id || u.userId);
-      }
-    } catch (e) {}
-    return 1;
+    return window.Utils ? Utils.getCurrentUserId() : 1;
   }
 
   function getProgressKeyPrefix() {
-    const uid = getCurrentUserId();
-    return `quizmaster-progress-u${uid}-`;
+    return window.Utils ? Utils.getProgressKeyPrefix() : `quizmaster-progress-u${getCurrentUserId()}-`;
   }
 
   function init() {

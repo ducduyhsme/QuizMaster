@@ -3,29 +3,15 @@ const SessionsView = (() => {
   const sessionDataStore = new Map();
 
   function getCurrentUserObj() {
-    if (typeof Auth !== 'undefined' && typeof Auth.getUser === 'function') {
-      const u = Auth.getUser();
-      if (u) return u;
-    }
-    if (window.Auth && typeof window.Auth.getUser === 'function') {
-      const u = window.Auth.getUser();
-      if (u) return u;
-    }
-    try {
-      const stored = localStorage.getItem('quizmaster-user');
-      if (stored) return JSON.parse(stored);
-    } catch (e) {}
-    return null;
+    return window.Utils ? Utils.getCurrentUserObj() : null;
   }
 
   function getCurrentUserId() {
-    const user = getCurrentUserObj();
-    return (user && (user.id || user.userId)) ? Number(user.id || user.userId) : 1;
+    return window.Utils ? Utils.getCurrentUserId() : 1;
   }
 
   function getProgressKeyPrefix() {
-    const uid = getCurrentUserId();
-    return `quizmaster-progress-u${uid}-`;
+    return window.Utils ? Utils.getProgressKeyPrefix() : `quizmaster-progress-u${getCurrentUserId()}-`;
   }
 
   const QTYPE_NAMES = {

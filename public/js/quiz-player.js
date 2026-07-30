@@ -1,378 +1,35 @@
 // ============================================
-// Quiz Player - Gameplay & Results
+// Quiz Player - Gameplay UI Controller
 // ============================================
 
 const QuizPlayer = (() => {
-  let currentQuiz = null;
-  let questionsQueue = [];
-  let currentIndex = 0;
-  let results = [];
-  let questionStates = [];
-  let currentRetries = 0;
-  let answered = false;
-  let lastAnswerTime = 0;
-  let settings = {};
-  let usedAnswers = {};
-  let allVocabQuestions = [];
-  let selectedQuestionType = 'all';
-  let currentPlayMode = localStorage.getItem('quizmaster-play-mode') || localStorage.getItem('quizmaster-dashboard-mode') || 'question';
-  let cachedPlayQuizzes = null;
-  let isGridCollapsedOnMobile = true;
-  function getCurrentUserObj() {
-    if (typeof Auth !== 'undefined' && typeof Auth.getUser === 'function') {
-      const u = Auth.getUser();
-      if (u) return u;
-    }
-    if (window.Auth && typeof window.Auth.getUser === 'function') {
-      const u = window.Auth.getUser();
-      if (u) return u;
-    }
-    try {
-      const stored = localStorage.getItem('quizmaster-user');
-      if (stored) return JSON.parse(stored);
-    } catch (e) {}
-    return null;
-  }
-
-  function getCurrentUserId() {
-    const user = getCurrentUserObj();
-    return (user && (user.id || user.userId)) ? Number(user.id || user.userId) : 1;
-  }
-
-  function getProgressKeyPrefix() {
-    const uid = getCurrentUserId();
-    return `quizmaster-progress-u${uid}-`;
-  }
+  let isResuming = false;
+  let cachedTypeCounts = null;
 
   function clearInMemoryState() {
-    currentQuiz = null;
-    questionsQueue = [];
-    results = [];
-    questionStates = [];
-    usedAnswers = {};
-    selectedQuestionType = 'all';
-    deletedQtypesSet.clear();
+    PlayerState.clearInMemoryState();
   }
-
-  let saveProgressTimer = null;
-
-  const deletedQtypesSet = new Set();
 
   function saveProgress() {
-    if (!currentQuiz || !currentQuiz.id) return Promise.resolve();
-    if (saveProgressTimer) clearTimeout(saveProgressTimer);
-
-    const effectiveQtype = selectedQuestionType || 'all';
-    const deleteKey = currentQuiz.id + '_' + effectiveQtype;
-    if (deletedQtypesSet.has(deleteKey) || deletedQtypesSet.has(currentQuiz.id + '_all')) {
-      return Promise.resolve();
-    }
-
-    try {
-      // If question was just answered, save progress at next question index
-      const indexToSave = answered ? Math.min(currentIndex + 1, questionsQueue.length) : currentIndex;
-
-      const lightweightQueue = questionsQueue.map(q => ({
-        id: q.id,
-        question_text: q.question_text,
-        correct_answer: q.correct_answer,
-        question_type: q.question_type,
-        ipa: q.ipa || '',
-        _failedTries: q._failedTries || 0
-      }));
-
-      const lightweightResults = results.map(r => ({
-        questionId: r.questionId || r.question?.id,
-        questionText: r.questionText || r.question?.question_text,
-        questionType: r.questionType || r.question?.question_type,
-        queueIndex: r.queueIndex,
-        userAnswer: r.userAnswer,
-        isCorrect: r.isCorrect,
-        retries: r.retries
-      }));
-      const lightweightStates = questionStates.map(s => ({ ...s }));
-
-      const authToken = (window.Auth && Auth.getToken()) || localStorage.getItem('quizmaster-token') || null;
-      const currentUser = (window.Auth && Auth.getUser()) || null;
-      const currentUserId = currentUser ? currentUser.id : null;
-
-      const progressData = {
-        quizId: currentQuiz.id,
-        quizTitle: currentQuiz.title || '',
-        quizType: currentQuiz.quiz_type || '',
-        currentIndex: indexToSave,
-        currentQuestionIndex: indexToSave,
-        questions: lightweightQueue,
-        queue: lightweightQueue,
-        selectedQuestionType: effectiveQtype,
-        results: lightweightResults,
-        questionStates: lightweightStates,
-        usedAnswers,
-        updatedAt: Date.now()
-      };
-
-      localStorage.setItem(getProgressKeyPrefix() + currentQuiz.id + '_' + effectiveQtype, JSON.stringify(progressData));
-      if (effectiveQtype === 'all') {
-        localStorage.setItem(getProgressKeyPrefix() + currentQuiz.id, JSON.stringify(progressData));
-      }
-
-      const payload = JSON.stringify({
-        quizId: currentQuiz.id,
-        qtype: effectiveQtype,
-        sessionData: progressData,
-        token: authToken,
-        userId: currentUserId
-      });
-
-      // Use sendBeacon for guaranteed delivery during navigation
-      if (navigator.sendBeacon) {
-        try {
-          navigator.sendBeacon('/api/sessions/save', new Blob([payload], { type: 'application/json' }));
-        } catch (e) {}
-      }
-
-      const headers = { 'Content-Type': 'application/json' };
-      if (authToken) {
-        headers['Authorization'] = `Bearer ${authToken}`;
-        headers['x-session-token'] = authToken;
-      }
-
-      const savePromise = fetch('/api/sessions/save', {
-        method: 'POST',
-        headers,
-        body: payload,
-        keepalive: true
-      }).catch(e => {
-        console.warn('Unable to save session to server:', e);
-      });
-
-      if (currentQuiz && currentQuiz.quiz_type === 'vocabulary') {
-        saveVocabPerQtypeProgress(authToken, currentUserId, headers);
-      }
-
-      return savePromise;
-    } catch (e) {
-      console.warn('Unable to save progress', e);
-      return Promise.resolve();
-    }
-  }
-
-  function saveVocabPerQtypeProgress(authToken, currentUserId, headers) {
-    if (!currentQuiz || currentQuiz.quiz_type !== 'vocabulary') return;
-    const pool = (allVocabQuestions && allVocabQuestions.length > 0) ? allVocabQuestions : questionsQueue;
-    if (!pool || pool.length === 0) return;
-    const activeAnsweredQuestion = answered ? questionsQueue[currentIndex] : null;
-    const activeAnsweredAlreadyInResults = activeAnsweredQuestion
-      ? results.some(r => (r.questionId || r.question?.id) && String(r.questionId || r.question?.id) === String(activeAnsweredQuestion.id) && (r.questionType || r.question?.question_type) === activeAnsweredQuestion.question_type)
-      : false;
-
-    const qtypesPresent = new Set();
-    pool.forEach(q => {
-      if (q.question_type) qtypesPresent.add(q.question_type);
-    });
-
-    qtypesPresent.forEach(qtype => {
-      if (deletedQtypesSet.has(currentQuiz.id + '_' + qtype)) return;
-      const qtypeQuestions = pool.filter(q => q.question_type === qtype);
-      if (qtypeQuestions.length === 0) return;
-
-      const qtypeResults = results.filter(r => (r.questionType || r.question?.question_type) === qtype);
-      const qtypeStates = questionStates.filter(s => s.questionType === qtype);
-      const activeAnsweredForQtype = activeAnsweredQuestion && activeAnsweredQuestion.question_type === qtype && !activeAnsweredAlreadyInResults;
-      if (qtypeResults.length === 0 && !activeAnsweredForQtype && qtypeStates.length === 0) return;
-
-      const qtypeIndexToSave = Math.min(qtypeResults.length + (activeAnsweredForQtype ? 1 : 0), qtypeQuestions.length);
-
-      const qtypeLightweightQueue = qtypeQuestions.map(q => ({
-        id: q.id,
-        question_text: q.question_text,
-        correct_answer: q.correct_answer,
-        question_type: q.question_type,
-        ipa: q.ipa || '',
-        _failedTries: q._failedTries || 0
-      }));
-
-      const qtypeProgressData = {
-        quizId: currentQuiz.id,
-        quizTitle: currentQuiz.title || '',
-        quizType: currentQuiz.quiz_type || '',
-        currentIndex: qtypeIndexToSave,
-        currentQuestionIndex: qtypeIndexToSave,
-        questions: qtypeLightweightQueue,
-        queue: qtypeLightweightQueue,
-        selectedQuestionType: qtype,
-        results: qtypeResults.map(r => ({
-          questionId: r.questionId || r.question?.id,
-          questionText: r.questionText || r.question?.question_text,
-          questionType: r.questionType || r.question?.question_type,
-          queueIndex: r.queueIndex,
-          userAnswer: r.userAnswer,
-          isCorrect: r.isCorrect,
-          retries: r.retries
-        })),
-        questionStates: qtypeStates.map(s => ({ ...s })),
-        usedAnswers,
-        updatedAt: Date.now()
-      };
-
-      localStorage.setItem(getProgressKeyPrefix() + currentQuiz.id + '_' + qtype, JSON.stringify(qtypeProgressData));
-
-      const payload = JSON.stringify({
-        quizId: currentQuiz.id,
-        qtype: qtype,
-        sessionData: qtypeProgressData,
-        token: authToken,
-        userId: currentUserId
-      });
-
-      if (navigator.sendBeacon) {
-        try {
-          navigator.sendBeacon('/api/sessions/save', new Blob([payload], { type: 'application/json' }));
-        } catch (e) {}
-      }
-
-      fetch('/api/sessions/save', {
-        method: 'POST',
-        headers,
-        body: payload,
-        keepalive: true
-      }).catch(e => {});
-    });
-
-    if (selectedQuestionType && selectedQuestionType !== 'all') {
-      const allLightweightQueue = pool.map(q => ({
-        id: q.id,
-        question_text: q.question_text,
-        correct_answer: q.correct_answer,
-        question_type: q.question_type,
-        ipa: q.ipa || '',
-        _failedTries: q._failedTries || 0
-      }));
-      const allIndexToSave = Math.min(results.length + (activeAnsweredQuestion && !activeAnsweredAlreadyInResults ? 1 : 0), pool.length);
-      const allProgressData = {
-        quizId: currentQuiz.id,
-        quizTitle: currentQuiz.title || '',
-        quizType: currentQuiz.quiz_type || '',
-        currentIndex: allIndexToSave,
-        currentQuestionIndex: allIndexToSave,
-        questions: allLightweightQueue,
-        queue: allLightweightQueue,
-        selectedQuestionType: 'all',
-        results: results.map(r => ({
-          questionId: r.questionId || r.question?.id,
-          questionText: r.questionText || r.question?.question_text,
-          questionType: r.questionType || r.question?.question_type,
-          queueIndex: r.queueIndex,
-          userAnswer: r.userAnswer,
-          isCorrect: r.isCorrect,
-          retries: r.retries
-        })),
-        questionStates: questionStates.map(s => ({ ...s })),
-        usedAnswers,
-        updatedAt: Date.now()
-      };
-
-      localStorage.setItem(getProgressKeyPrefix() + currentQuiz.id + '_all', JSON.stringify(allProgressData));
-      localStorage.setItem(getProgressKeyPrefix() + currentQuiz.id, JSON.stringify(allProgressData));
-
-      const payloadAll = JSON.stringify({
-        quizId: currentQuiz.id,
-        qtype: 'all',
-        sessionData: allProgressData,
-        token: authToken,
-        userId: currentUserId
-      });
-
-      if (navigator.sendBeacon) {
-        try {
-          navigator.sendBeacon('/api/sessions/save', new Blob([payloadAll], { type: 'application/json' }));
-        } catch (e) {}
-      }
-
-      fetch('/api/sessions/save', {
-        method: 'POST',
-        headers,
-        body: payloadAll,
-        keepalive: true
-      }).catch(e => {});
-    }
+    return PlayerState.saveProgress();
   }
 
   function getSavedProgress(quizId, targetQtype = null) {
-    try {
-      const currentUserId = getCurrentUserId();
-
-      if (targetQtype && targetQtype !== 'all') {
-        if (deletedQtypesSet.has(quizId + '_' + targetQtype)) return null;
-        let qData = localStorage.getItem(getProgressKeyPrefix() + quizId + '_' + targetQtype);
-        if (!qData && currentUserId === 1) {
-          // Fallback check for legacy un-namespaced key ONLY for Admin
-          qData = localStorage.getItem('quizmaster-progress-' + quizId + '_' + targetQtype);
-          if (qData) {
-            localStorage.setItem(getProgressKeyPrefix() + quizId + '_' + targetQtype, qData);
-          }
-        }
-        if (qData) {
-          try {
-            const parsed = JSON.parse(qData);
-            if (parsed) return parsed;
-          } catch (e) {}
-        }
-      }
-
-      if (targetQtype === 'all') {
-        if (deletedQtypesSet.has(quizId + '_all')) return null;
-        let allData = localStorage.getItem(getProgressKeyPrefix() + quizId + '_all') || localStorage.getItem(getProgressKeyPrefix() + quizId);
-        if (!allData && currentUserId === 1) {
-          // Fallback check for legacy un-namespaced keys ONLY for Admin
-          allData = localStorage.getItem('quizmaster-progress-' + quizId + '_all') || localStorage.getItem('quizmaster-progress-' + quizId);
-          if (allData) {
-            localStorage.setItem(getProgressKeyPrefix() + quizId + '_all', allData);
-          }
-        }
-        if (allData) {
-          try {
-            const parsed = JSON.parse(allData);
-            if (parsed) return parsed;
-          } catch (e) {}
-        }
-      }
-
-      if (!targetQtype) {
-        let best = null;
-        const prefix = getProgressKeyPrefix() + quizId;
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && key.startsWith(prefix)) {
-            const subType = key.substring(prefix.length + 1);
-            if (subType && deletedQtypesSet.has(quizId + '_' + subType)) continue;
-            try {
-              const parsed = JSON.parse(localStorage.getItem(key));
-              if (parsed && (!best || (parsed.updatedAt || 0) > (best.updatedAt || 0))) {
-                best = parsed;
-              }
-            } catch (e) {}
-          }
-        }
-        return best;
-      }
-
-      return null;
-    } catch (e) {
-      return null;
-    }
+    return PlayerState.getSavedProgress(quizId, targetQtype);
   }
 
-  // Attach global lifecycle event listeners so progress is saved when navigating away or closing window
-  window.addEventListener('beforeunload', () => saveProgress());
-  window.addEventListener('pagehide', () => saveProgress());
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') saveProgress();
-  });
-  window.addEventListener('hashchange', () => saveProgress());
+  function clearSavedProgress(quizId, targetQtype = null) {
+    return PlayerState.clearSavedProgress(quizId, targetQtype);
+  }
+
+  function playTTS(text, langCode = 'en') {
+    PlayerAudio.playTTS(text, langCode);
+  }
+
+  // Keyboard shortcut listener
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.repeat && answered) {
-      if (Date.now() - lastAnswerTime < 150) return;
+    if (e.key === 'Enter' && !e.repeat && PlayerState.answered) {
+      if (Date.now() - PlayerState.lastAnswerTime < 150) return;
       const submitBtn = document.getElementById('submit-btn');
       if (submitBtn && typeof submitBtn.onclick === 'function') {
         e.preventDefault();
@@ -380,58 +37,6 @@ const QuizPlayer = (() => {
       }
     }
   });
-
-  function clearSavedProgress(quizId, targetQtype = null) {
-    if (!quizId) return Promise.resolve();
-    if (saveProgressTimer) clearTimeout(saveProgressTimer);
-
-    const effectiveQtype = targetQtype || selectedQuestionType || 'all';
-    const deleteKey = quizId + '_' + effectiveQtype;
-    deletedQtypesSet.add(deleteKey);
-
-    localStorage.removeItem(getProgressKeyPrefix() + quizId + '_' + effectiveQtype);
-
-    if (effectiveQtype === 'all') {
-      deletedQtypesSet.add(quizId + '_all');
-      localStorage.removeItem(getProgressKeyPrefix() + quizId + '_all');
-      localStorage.removeItem(getProgressKeyPrefix() + quizId);
-    } else {
-      // Clean up targetQtype results from 'all' session in localStorage if present
-      [getProgressKeyPrefix() + quizId + '_all', getProgressKeyPrefix() + quizId].forEach(allKey => {
-        const rawAll = localStorage.getItem(allKey);
-        if (rawAll) {
-          try {
-            const parsed = JSON.parse(rawAll);
-            if (parsed && Array.isArray(parsed.results)) {
-              const cleaned = parsed.results.filter(r => (r.questionType || r.question_type || r.question?.question_type) !== effectiveQtype);
-              if (cleaned.length === 0) {
-                localStorage.removeItem(allKey);
-              } else {
-                parsed.results = cleaned;
-                parsed.currentIndex = Math.min(cleaned.length, parsed.currentIndex || 0);
-                localStorage.setItem(allKey, JSON.stringify(parsed));
-              }
-            }
-          } catch (e) {}
-        }
-      });
-    }
-
-    if (currentQuiz && Number(currentQuiz.id) === Number(quizId)) {
-      if (effectiveQtype === 'all' || effectiveQtype === selectedQuestionType) {
-        currentQuiz = null;
-        questionsQueue = [];
-        results = [];
-        questionStates = [];
-        usedAnswers = {};
-      } else {
-        results = results.filter(r => (r.questionType || r.question_type || r.question?.question_type) !== effectiveQtype);
-        questionStates = questionStates.filter(s => s.questionType !== effectiveQtype);
-      }
-    }
-
-    return fetch(`/api/sessions/quiz/${quizId}/qtype/${effectiveQtype}`, { method: 'DELETE' }).catch(e => {});
-  }
 
   function renderSelectScreen() {
     const main = document.getElementById('main-content');
@@ -442,10 +47,10 @@ const QuizPlayer = (() => {
       </div>
 
       <div class="mode-toggle" style="margin-bottom: 24px;">
-        <button class="mode-btn ${currentPlayMode === 'question' ? 'active' : ''}" id="play-mode-question-btn" onclick="QuizPlayer.setPlayMode('question')">
+        <button class="mode-btn ${PlayerState.currentPlayMode === 'question' ? 'active' : ''}" id="play-mode-question-btn" onclick="QuizPlayer.setPlayMode('question')">
           📝 <span data-i18n="dashboard.modeQuestion">${I18n.t('dashboard.modeQuestion')}</span>
         </button>
-        <button class="mode-btn ${currentPlayMode === 'vocabulary' ? 'active' : ''}" id="play-mode-vocab-btn" onclick="QuizPlayer.setPlayMode('vocabulary')">
+        <button class="mode-btn ${PlayerState.currentPlayMode === 'vocabulary' ? 'active' : ''}" id="play-mode-vocab-btn" onclick="QuizPlayer.setPlayMode('vocabulary')">
           🔤 <span data-i18n="dashboard.modeVocab">${I18n.t('dashboard.modeVocab')}</span>
         </button>
       </div>
@@ -456,7 +61,7 @@ const QuizPlayer = (() => {
   }
 
   function setPlayMode(mode) {
-    currentPlayMode = mode;
+    PlayerState.currentPlayMode = mode;
     localStorage.setItem('quizmaster-play-mode', mode);
     localStorage.setItem('quizmaster-dashboard-mode', mode);
 
@@ -471,9 +76,9 @@ const QuizPlayer = (() => {
   async function loadQuizList(forceFetch = false) {
     try {
       const container = document.getElementById('play-quiz-list');
-      if (!cachedPlayQuizzes || forceFetch) {
+      if (!PlayerState.cachedPlayQuizzes || forceFetch) {
         const res = await fetch('/api/quizzes');
-        cachedPlayQuizzes = await res.json();
+        PlayerState.cachedPlayQuizzes = await res.json();
       }
       if (container) container.classList.remove('loading-overlay');
       renderFilteredPlayQuizList();
@@ -482,78 +87,11 @@ const QuizPlayer = (() => {
     }
   }
 
-  function attachWordMetadataToQuestions(questions) {
-    if (!questions || questions.length === 0) return;
-    const wordMap = new Map();
-    questions.forEach(q => {
-      let w = '', m = '', ipa = q.ipa || '';
-      if (q.question_type === 'fill_word_meaning' || q.question_type === 'mcq_word_meaning') {
-        w = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
-        m = (q.correct_answer || '').trim();
-      } else if (q.question_type === 'fill_meaning_word' || q.question_type === 'mcq_meaning_word') {
-        w = (q.correct_answer || '').trim();
-        m = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
-      }
-      if (w && m) {
-        const key = w.toLowerCase() + ':::' + m.toLowerCase();
-        if (!wordMap.has(key)) {
-          wordMap.set(key, { word: w, meaning: m, ipa });
-        } else if (ipa && !wordMap.get(key).ipa) {
-          wordMap.get(key).ipa = ipa;
-        }
-      }
-    });
-
-    questions.forEach(q => {
-      let w = '', m = '';
-      if (q.question_type === 'fill_word_meaning' || q.question_type === 'mcq_word_meaning') {
-        w = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
-        m = (q.correct_answer || '').trim();
-      } else if (q.question_type === 'fill_meaning_word' || q.question_type === 'mcq_meaning_word') {
-        w = (q.correct_answer || '').trim();
-        m = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
-      }
-      if (w && m) {
-        const key = w.toLowerCase() + ':::' + m.toLowerCase();
-        const meta = wordMap.get(key);
-        if (meta) {
-          q._word = meta.word;
-          q._meaning = meta.meaning;
-          q._ipa = meta.ipa || q.ipa || '';
-        } else {
-          q._word = w;
-          q._meaning = m;
-          q._ipa = q.ipa || '';
-        }
-      } else {
-        q._word = q.question_text || '';
-        q._meaning = q.correct_answer || '';
-        q._ipa = q.ipa || '';
-      }
-    });
-  }
-
-  function addWrongWord(word, meaning, ipa) {
-    if (!word || !meaning) return;
-    if (currentQuiz && (currentQuiz.code === 'WRONG0' || currentQuiz.is_pinned === 1 || currentQuiz.title === 'Các từ sai/hay quên')) {
-      return;
-    }
-    fetch('/api/quizzes/wrong-words/add', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ word, meaning, ipa })
-    }).then(res => res.json()).then(() => {
-      cachedPlayQuizzes = null;
-    }).catch(err => {
-      console.warn('Could not save wrong word:', err);
-    });
-  }
-
   function renderFilteredPlayQuizList() {
     const container = document.getElementById('play-quiz-list');
-    if (!container || !cachedPlayQuizzes) return;
+    if (!container || !PlayerState.cachedPlayQuizzes) return;
 
-    const filtered = cachedPlayQuizzes.filter(q => (q.quiz_type || 'question') === currentPlayMode);
+    const filtered = PlayerState.cachedPlayQuizzes.filter(q => (q.quiz_type || 'question') === PlayerState.currentPlayMode);
 
     if (filtered.length === 0) {
       container.innerHTML = `
@@ -609,38 +147,6 @@ const QuizPlayer = (() => {
     }).join('');
   }
 
-  function showResumeModal(saved, quizId) {
-    const savedQueue = saved.queue || saved.questions || saved.questionsQueue || [];
-    const total = savedQueue.length;
-    const currentNum = Math.min((saved.currentIndex || 0) + 1, total);
-    const correctCount = (saved.results || []).filter(r => r.isCorrect).length;
-
-    const body = `
-      <div style="text-align: center; padding: 12px 0;">
-        <div style="font-size: 44px; margin-bottom: 12px;">💾</div>
-        <p style="font-size: 15px; color: var(--text-secondary); margin-bottom: 14px; line-height: 1.5;">
-          ${I18n.t('resume.message', { current: currentNum, total })}
-        </p>
-        <div style="display: inline-flex; gap: 12px; background: var(--bg-glass); padding: 8px 16px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); font-size: 13px; color: var(--text-muted);">
-          <span>${I18n.t('results.correct')}: <strong style="color: #10b981;">${correctCount}</strong></span>
-          <span>·</span>
-          <span>${I18n.t('results.total')}: <strong>${total}</strong></span>
-        </div>
-      </div>
-    `;
-
-    const footer = `
-      <button class="btn btn-ghost" onclick="QuizPlayer.startQuiz(${quizId}, true)">
-        🔄 ${I18n.t('resume.startNew')}
-      </button>
-      <button class="btn btn-primary" onclick="QuizPlayer.resumeQuiz(${quizId})">
-        ▶ ${I18n.t('resume.continue')}
-      </button>
-    `;
-
-    Components.showModal(I18n.t('resume.title'), body, footer);
-  }
-
   function buildFullVocabQuestions(quiz, settingsObj) {
     if (!quiz || !quiz.questions) return [];
     let raw = [...quiz.questions];
@@ -676,8 +182,6 @@ const QuizPlayer = (() => {
     return fullList;
   }
 
-  let isResuming = false;
-
   async function resumeQuiz(quizId, targetQtype = null, rawSessionData = null) {
     if (isResuming) return;
     isResuming = true;
@@ -702,27 +206,28 @@ const QuizPlayer = (() => {
       const effectiveQtype = targetQtype || saved.selectedQuestionType || 'all';
 
       try {
+        const uid = window.Utils ? Utils.getCurrentUserId() : 1;
         if (effectiveQtype === 'all') {
-          localStorage.setItem(getProgressKeyPrefix() + quizId, JSON.stringify(saved));
+          localStorage.setItem(`quizmaster-progress-u${uid}-${quizId}`, JSON.stringify(saved));
         }
         if (effectiveQtype) {
-          localStorage.setItem(getProgressKeyPrefix() + quizId + '_' + effectiveQtype, JSON.stringify(saved));
+          localStorage.setItem(`quizmaster-progress-u${uid}-${quizId}_${effectiveQtype}`, JSON.stringify(saved));
         }
       } catch (e) {}
 
       const res = await fetch(`/api/quizzes/${quizId}`);
       if (!res.ok) throw new Error('Quiz not found');
-      currentQuiz = await res.json();
+      PlayerState.currentQuiz = await res.json();
 
-      settings = {
+      PlayerState.settings = {
         shuffleQuestions: localStorage.getItem('quizmaster-shuffle') === 'true',
         swapQA: localStorage.getItem('quizmaster-swap') === 'true',
         allowDuplicates: localStorage.getItem('quizmaster-allow-duplicates') === 'true',
         maxRetries: parseInt(localStorage.getItem('quizmaster-max-retries') || '-1', 10),
       };
 
-      selectedQuestionType = effectiveQtype;
-      results = (saved.results || []).map(r => ({
+      PlayerState.selectedQuestionType = effectiveQtype;
+      PlayerState.results = (saved.results || []).map(r => ({
         ...r,
         question: r.question || {
           id: r.questionId || r.question?.id,
@@ -731,19 +236,19 @@ const QuizPlayer = (() => {
           correct_answer: r.userAnswer || ''
         }
       }));
-      questionStates = Array.isArray(saved.questionStates) ? saved.questionStates : (saved.results || []).map(r => ({ key: String(r.questionId || r.question?.id) + '|' + (r.questionType || r.question?.question_type) + '|' + r.queueIndex, questionId: r.questionId || r.question?.id, questionType: r.questionType || r.question?.question_type, queueIndex: r.queueIndex, status: r.isCorrect ? 'correct' : 'incorrect' }));
-      usedAnswers = saved.usedAnswers || {};
+      PlayerState.questionStates = Array.isArray(saved.questionStates) ? saved.questionStates : (saved.results || []).map(r => ({ key: String(r.questionId || r.question?.id) + '|' + (r.questionType || r.question?.question_type) + '|' + r.queueIndex, questionId: r.questionId || r.question?.id, questionType: r.questionType || r.question?.question_type, queueIndex: r.queueIndex, status: r.isCorrect ? 'correct' : 'incorrect' }));
+      PlayerState.usedAnswers = saved.usedAnswers || {};
 
-      if (currentQuiz.quiz_type === 'vocabulary') {
-        allVocabQuestions = buildFullVocabQuestions(currentQuiz, settings);
+      if (PlayerState.currentQuiz.quiz_type === 'vocabulary') {
+        PlayerState.allVocabQuestions = buildFullVocabQuestions(PlayerState.currentQuiz, PlayerState.settings);
         cachedTypeCounts = null;
 
-        let targetPool = [...allVocabQuestions];
+        let targetPool = [...PlayerState.allVocabQuestions];
         if (effectiveQtype && effectiveQtype !== 'all') {
           targetPool = targetPool.filter(q => q.question_type === effectiveQtype);
         }
         if (targetPool.length === 0) {
-          targetPool = [...allVocabQuestions];
+          targetPool = [...PlayerState.allVocabQuestions];
         }
 
         const savedQueue = saved.queue || saved.questions || saved.questionsQueue || [];
@@ -782,15 +287,15 @@ const QuizPlayer = (() => {
             }
           });
 
-          questionsQueue = restored.length > 0 ? restored : targetPool;
+          PlayerState.questionsQueue = restored.length > 0 ? restored : targetPool;
         } else {
-          questionsQueue = targetPool;
+          PlayerState.questionsQueue = targetPool;
         }
       } else {
-        allVocabQuestions = [];
+        PlayerState.allVocabQuestions = [];
         cachedTypeCounts = null;
-        let rawQuestions = [...currentQuiz.questions];
-        if (settings.swapQA) {
+        let rawQuestions = [...PlayerState.currentQuiz.questions];
+        if (PlayerState.settings.swapQA) {
           rawQuestions = rawQuestions.map(q => ({
             ...q,
             question_text: q.correct_answer.split('/').join(' / '),
@@ -802,7 +307,7 @@ const QuizPlayer = (() => {
         const savedQueue = saved.queue || saved.questions || saved.questionsQueue || [];
 
         if (savedQueue.length > 0) {
-          questionsQueue = savedQueue.map(item => {
+          PlayerState.questionsQueue = savedQueue.map(item => {
             const fullQ = questionMap.get(String(item.id)) || item;
             return {
               ...fullQ,
@@ -810,29 +315,29 @@ const QuizPlayer = (() => {
             };
           }).filter(q => q && q.question_text);
         } else {
-          questionsQueue = rawQuestions;
+          PlayerState.questionsQueue = rawQuestions;
         }
       }
 
-      if (!questionsQueue || questionsQueue.length === 0) {
+      if (!PlayerState.questionsQueue || PlayerState.questionsQueue.length === 0) {
         throw new Error('Không có câu hỏi nào để khôi phục');
       }
 
       const rawIndex = saved.currentIndex !== undefined ? saved.currentIndex : (saved.currentQuestionIndex || 0);
       
-      if (rawIndex >= questionsQueue.length) {
-        if (results.length >= questionsQueue.length) {
-          currentIndex = questionsQueue.length;
+      if (rawIndex >= PlayerState.questionsQueue.length) {
+        if (PlayerState.results.length >= PlayerState.questionsQueue.length) {
+          PlayerState.currentIndex = PlayerState.questionsQueue.length;
         } else {
-          currentIndex = Math.max(0, questionsQueue.length - 1);
+          PlayerState.currentIndex = Math.max(0, PlayerState.questionsQueue.length - 1);
         }
       } else {
-        currentIndex = Math.max(0, rawIndex);
+        PlayerState.currentIndex = Math.max(0, rawIndex);
       }
 
-      attachWordMetadataToQuestions(questionsQueue);
-      if (allVocabQuestions && allVocabQuestions.length > 0) {
-        attachWordMetadataToQuestions(allVocabQuestions);
+      PlayerState.attachWordMetadataToQuestions(PlayerState.questionsQueue);
+      if (PlayerState.allVocabQuestions && PlayerState.allVocabQuestions.length > 0) {
+        PlayerState.attachWordMetadataToQuestions(PlayerState.allVocabQuestions);
       }
 
       if (window.location.hash !== `#play/${quizId}`) {
@@ -887,26 +392,23 @@ const QuizPlayer = (() => {
 
       const res = await fetch(`/api/quizzes/${quizId}`);
       if (!res.ok) throw new Error('Quiz not found');
-      currentQuiz = await res.json();
+      PlayerState.currentQuiz = await res.json();
 
-      if (!currentQuiz.questions || currentQuiz.questions.length === 0) {
+      if (!PlayerState.currentQuiz.questions || PlayerState.currentQuiz.questions.length === 0) {
         Components.showToast('This quiz has no questions.', 'warning');
         return;
       }
 
-      // Load settings
-      settings = {
+      PlayerState.settings = {
         shuffleQuestions: localStorage.getItem('quizmaster-shuffle') === 'true',
         swapQA: localStorage.getItem('quizmaster-swap') === 'true',
         allowDuplicates: localStorage.getItem('quizmaster-allow-duplicates') === 'true',
         maxRetries: parseInt(localStorage.getItem('quizmaster-max-retries') || '-1', 10),
       };
 
-      // Prepare questions
-      let rawQueue = [...currentQuiz.questions];
+      let rawQueue = [...PlayerState.currentQuiz.questions];
 
-      // Apply swap if enabled
-      if (settings.swapQA) {
+      if (PlayerState.settings.swapQA) {
         rawQueue = rawQueue.map(q => ({
           ...q,
           question_text: q.correct_answer.split('/').join(' / '),
@@ -914,49 +416,47 @@ const QuizPlayer = (() => {
         }));
       }
 
-      questionsQueue = [];
+      let newQueue = [];
       rawQueue.forEach(q => {
         const isMcq = q.question_type && q.question_type.startsWith('mcq_');
         if (isMcq) {
-          questionsQueue.push({ ...q });
+          newQueue.push({ ...q });
         } else {
           const ansCount = q.correct_answer.split('/').filter(a => a.trim()).length || 1;
           for (let i = 0; i < ansCount; i++) {
-            questionsQueue.push({ ...q });
+            newQueue.push({ ...q });
           }
         }
       });
 
-      // Shuffle if enabled
-      if (settings.shuffleQuestions) {
-        questionsQueue = shuffleArray(questionsQueue);
+      if (PlayerState.settings.shuffleQuestions) {
+        newQueue = PlayerState.shuffleArray(newQueue);
       }
 
-      // For vocabulary quizzes, save the full list so we can filter by type
-      if (currentQuiz.quiz_type === 'vocabulary') {
-        allVocabQuestions = buildFullVocabQuestions(currentQuiz, settings);
+      if (PlayerState.currentQuiz.quiz_type === 'vocabulary') {
+        PlayerState.allVocabQuestions = buildFullVocabQuestions(PlayerState.currentQuiz, PlayerState.settings);
         cachedTypeCounts = null;
-        questionsQueue = [...allVocabQuestions];
-        if (settings.shuffleQuestions) {
-          questionsQueue = shuffleArray(questionsQueue);
+        newQueue = [...PlayerState.allVocabQuestions];
+        if (PlayerState.settings.shuffleQuestions) {
+          newQueue = PlayerState.shuffleArray(newQueue);
         }
-        // Apply type filter if one was selected
-        if (selectedQuestionType !== 'all') {
-          questionsQueue = questionsQueue.filter(q => q.question_type === selectedQuestionType);
+        if (PlayerState.selectedQuestionType !== 'all') {
+          newQueue = newQueue.filter(q => q.question_type === PlayerState.selectedQuestionType);
         }
-        attachWordMetadataToQuestions(allVocabQuestions);
+        PlayerState.attachWordMetadataToQuestions(PlayerState.allVocabQuestions);
       } else {
-        allVocabQuestions = [];
+        PlayerState.allVocabQuestions = [];
         cachedTypeCounts = null;
-        selectedQuestionType = 'all';
+        PlayerState.selectedQuestionType = 'all';
       }
 
-      attachWordMetadataToQuestions(questionsQueue);
+      PlayerState.questionsQueue = newQueue;
+      PlayerState.attachWordMetadataToQuestions(PlayerState.questionsQueue);
 
-      currentIndex = 0;
-      results = [];
-      questionStates = [];
-      usedAnswers = {};
+      PlayerState.currentIndex = 0;
+      PlayerState.results = [];
+      PlayerState.questionStates = [];
+      PlayerState.usedAnswers = {};
       renderQuestion();
     } catch (err) {
       Components.showToast(I18n.t('common.error'), 'error');
@@ -964,49 +464,30 @@ const QuizPlayer = (() => {
     }
   }
 
-  function shuffleArray(arr) {
-    const shuffled = [...arr];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
-  }
-
-  function getUsedAnswersKey(question) {
-    if (!question) return '';
-    if (!question.question_type) return question.id;
-    const cleanPrompt = (question.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim().toLowerCase();
-    let target = 'ans';
-    if (question.question_type.endsWith('_meaning')) target = 'meaning';
-    else if (question.question_type.endsWith('_word')) target = 'word';
-    else if (question.question_type.endsWith('_ipa')) target = 'ipa';
-    return `${cleanPrompt}_${target}`;
-  }
-
   function renderQuestion() {
-    if (currentIndex >= questionsQueue.length) {
+    const queue = PlayerState.questionsQueue;
+    const idx = PlayerState.currentIndex;
+    if (idx >= queue.length) {
       renderResults();
       return;
     }
 
-    const q = questionsQueue[currentIndex];
-    currentRetries = q._failedTries || 0;
-    answered = false;
+    const q = queue[idx];
+    PlayerState.currentRetries = q._failedTries || 0;
+    PlayerState.answered = false;
 
     saveProgress();
-    const total = questionsQueue.length;
-    const progress = ((currentIndex) / total) * 100;
+    const total = queue.length;
+    const progress = ((idx) / total) * 100;
 
     const main = document.getElementById('main-content');
 
-    // Parse question text and options
     let displayQuestionText = q.question_text;
     let options = [];
     const isMcq = q.question_type && q.question_type.startsWith('mcq_');
     const isListen = q.question_type && (q.question_type.startsWith('fill_listen_') || q.question_type.startsWith('mcq_listen_'));
-    const answerKey = getUsedAnswersKey(q);
-    const answeredChips = !isMcq ? (usedAnswers[answerKey] || []) : [];
+    const answerKey = PlayerState.getUsedAnswersKey(q);
+    const answeredChips = !isMcq ? (PlayerState.usedAnswers[answerKey] || []) : [];
 
     if (displayQuestionText.includes('|||')) {
       const parts = displayQuestionText.split('|||');
@@ -1018,14 +499,12 @@ const QuizPlayer = (() => {
       displayQuestionText = displayQuestionText.substring(2).trim();
     }
 
-    // Determine TTS language if it's vocab mode
     let langToSpeak = 'en';
-    if (currentQuiz.quiz_type === 'vocabulary') {
+    if (PlayerState.currentQuiz && PlayerState.currentQuiz.quiz_type === 'vocabulary') {
       const isMeaningPrompt = q.question_type === 'fill_meaning_word' || q.question_type === 'mcq_meaning_word' || q.question_type === 'mcq_meaning_ipa';
-      langToSpeak = isMeaningPrompt ? currentQuiz.meaning_lang : currentQuiz.vocab_lang;
+      langToSpeak = isMeaningPrompt ? PlayerState.currentQuiz.meaning_lang : PlayerState.currentQuiz.vocab_lang;
     }
 
-    // Build media HTML
     let mediaHTML = '';
     if (q.image_path || q.audio_path) {
       mediaHTML = '<div class="question-media">';
@@ -1053,20 +532,17 @@ const QuizPlayer = (() => {
           </button>
         </div>
       `;
-      // Auto-play TTS when question appears
       setTimeout(() => playTTS(displayQuestionText, langToSpeak), 300);
     } else {
-      // Only show TTS button for vocab mode when it's NOT a meaning or IPA prompt
       let ttsBtn = '';
-      if (currentQuiz.quiz_type === 'vocabulary' && !isMeaningOrIpaPrompt) {
+      if (PlayerState.currentQuiz && PlayerState.currentQuiz.quiz_type === 'vocabulary' && !isMeaningOrIpaPrompt) {
         ttsBtn = `<button class="tts-btn" onclick="QuizPlayer.playTTS('${Components.escapeHtml(displayQuestionText).replace(/'/g, "\\'")}', '${langToSpeak}')">🔊</button>`;
       }
       questionTextHTML = `<div class="question-text">${Components.escapeHtml(displayQuestionText)} ${ttsBtn}</div>`;
     }
 
-    // Build Answer HTML
     let answerInputHTML = '';
-    const showDontRemember = currentQuiz.quiz_type === 'vocabulary';
+    const showDontRemember = PlayerState.currentQuiz && PlayerState.currentQuiz.quiz_type === 'vocabulary';
     const dontRememberBtnHTML = showDontRemember ? `
       <button class="dont-remember-btn" id="dont-remember-btn" onclick="QuizPlayer.handleDontRemember()">
         ❓ ${I18n.t('play.dontRemember')}
@@ -1089,7 +565,7 @@ const QuizPlayer = (() => {
         ` : ''}
       `;
     } else {
-      const placeholderText = (currentQuiz.quiz_type === 'vocabulary' && q.question_type)
+      const placeholderText = (PlayerState.currentQuiz && PlayerState.currentQuiz.quiz_type === 'vocabulary' && q.question_type)
         ? I18n.t('qtype.' + q.question_type + '_desc')
         : I18n.t('play.answerPlaceholder');
 
@@ -1105,13 +581,12 @@ const QuizPlayer = (() => {
       `;
     }
 
-    // Build question type selector for vocabulary quizzes
     let questionTypeSelectorHTML = '';
-    if (currentQuiz.quiz_type === 'vocabulary') {
+    if (PlayerState.currentQuiz && PlayerState.currentQuiz.quiz_type === 'vocabulary') {
       questionTypeSelectorHTML = buildQuestionTypeSelector();
     }
 
-    if (currentQuiz.quiz_type === 'vocabulary') {
+    if (PlayerState.currentQuiz && PlayerState.currentQuiz.quiz_type === 'vocabulary') {
       const gridSidebarHTML = buildVocabGridHTML();
       main.innerHTML = `
         <div class="vocab-player-layout">
@@ -1121,9 +596,9 @@ const QuizPlayer = (() => {
                 <div class="progress-bar" style="width: ${progress}%"></div>
               </div>
               <div class="progress-info">
-                <span>${I18n.t('play.questionOf', { current: currentIndex + 1, total })}</span>
+                <span>${I18n.t('play.questionOf', { current: idx + 1, total })}</span>
                 <span class="retry-count" id="retry-display">
-                  🔄 ${I18n.t('play.retries')}: <span id="retry-count">${currentRetries}</span>
+                  🔄 ${I18n.t('play.retries')}: <span id="retry-count">${PlayerState.currentRetries}</span>
                 </span>
               </div>
             </div>
@@ -1133,7 +608,7 @@ const QuizPlayer = (() => {
                 <div class="question-number">
                   ${q.question_type && !isMcq ? `
                     <span class="vocab-qtype-badge">🎯 ${I18n.t('qtype.' + q.question_type + '_desc')}</span>
-                  ` : `<span>${I18n.t('play.questionOf', { current: currentIndex + 1, total })}</span>`}
+                  ` : `<span>${I18n.t('play.questionOf', { current: idx + 1, total })}</span>`}
                 </div>
                 <div class="question-card-header-chips">
                   ${(q._failedTries && q._failedTries > 0) ? `
@@ -1169,9 +644,9 @@ const QuizPlayer = (() => {
               <div class="progress-bar" style="width: ${progress}%"></div>
             </div>
             <div class="progress-info">
-              <span>${I18n.t('play.questionOf', { current: currentIndex + 1, total })}</span>
+              <span>${I18n.t('play.questionOf', { current: idx + 1, total })}</span>
               <span class="retry-count" id="retry-display">
-                🔄 ${I18n.t('play.retries')}: <span id="retry-count">${currentRetries}</span>
+                🔄 ${I18n.t('play.retries')}: <span id="retry-count">${PlayerState.currentRetries}</span>
               </span>
             </div>
           </div>
@@ -1179,7 +654,7 @@ const QuizPlayer = (() => {
           <div class="question-card" id="question-card">
             <div class="question-card-top-row">
               <div class="question-number">
-                <span>${I18n.t('play.questionOf', { current: currentIndex + 1, total })}</span>
+                <span>${I18n.t('play.questionOf', { current: idx + 1, total })}</span>
               </div>
               <div class="question-card-header-chips">
                 ${(q._failedTries && q._failedTries > 0) ? `
@@ -1205,15 +680,13 @@ const QuizPlayer = (() => {
       `;
     }
 
-    // Focus input if fill-in-the-blank
     if (!isMcq) {
       setTimeout(() => {
         document.getElementById('answer-input')?.focus();
       }, 100);
     }
 
-    // Auto-scroll grid container instantly to track active question box without sliding animation
-    if (currentQuiz && currentQuiz.quiz_type === 'vocabulary') {
+    if (PlayerState.currentQuiz && PlayerState.currentQuiz.quiz_type === 'vocabulary') {
       const currentBox = document.querySelector('.vocab-grid-box.current');
       const gridContainer = document.querySelector('.vocab-grid-container');
       if (currentBox && gridContainer) {
@@ -1231,120 +704,21 @@ const QuizPlayer = (() => {
     }
   }
 
-  let activeAudioFallback = null;
-  let audioContext = null;
-
-  function getAudioContext() {
-    if (!audioContext) {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) audioContext = new AudioCtx();
-    }
-    if (audioContext && audioContext.state === 'suspended') {
-      audioContext.resume();
-    }
-    return audioContext;
-  }
-
-  function detectTextLanguage(text, fallbackLang = 'en') {
-    if (!text) return fallbackLang || 'en';
-    const str = String(text).trim();
-
-    if (/[\u4e00-\u9fa5\u3400-\u4dbf]/.test(str)) {
-      return 'zh';
-    }
-    if (/[\u3040-\u309f\u30a0-\u30ff]/.test(str)) {
-      return 'ja';
-    }
-    if (/[\uac00-\ud7af\u1100-\u11ff]/.test(str)) {
-      return 'ko';
-    }
-    if (/[\u0400-\u04ff]/.test(str)) {
-      return 'ru';
-    }
-
-    return fallbackLang || 'en';
-  }
-
-  function playTTS(text, langCode = 'en') {
-    if (!text) return;
-
-    const savedVolume = localStorage.getItem('quizmaster-volume');
-    const volumeSetting = savedVolume !== null ? parseFloat(savedVolume) : 0.5;
-    const finalVolumeSetting = isNaN(volumeSetting) ? 0.5 : Math.max(0, Math.min(2.0, volumeSetting));
-
-    if (finalVolumeSetting === 0) return;
-
-    const cleanText = text.replace(/<[^>]*>/g, '').trim();
-    if (!cleanText) return;
-
-    if ('speechSynthesis' in window) {
-      try {
-        window.speechSynthesis.cancel();
-      } catch(e) {}
-    }
-
-    if (activeAudioFallback) {
-      try {
-        activeAudioFallback.pause();
-        activeAudioFallback.currentTime = 0;
-      } catch(e) {}
-      activeAudioFallback = null;
-    }
-
-    const effectiveLang = detectTextLanguage(cleanText, langCode);
-
-    fallbackServerAudio(cleanText, effectiveLang, finalVolumeSetting);
-  }
-
-  function fallbackServerAudio(text, langCode, volumeSetting) {
-    try {
-      const langPrefix = (langCode || 'en').toLowerCase().split('-')[0].split('_')[0];
-      const gLang = langPrefix === 'zh' ? 'zh-CN' : langPrefix;
-
-      const audioUrl = `/api/tts?text=${encodeURIComponent(text)}&lang=${gLang}`;
-      const audio = new Audio(audioUrl);
-      audio.crossOrigin = 'anonymous';
-
-      const gainMultiplier = volumeSetting;
-
-      try {
-        const ctx = getAudioContext();
-        if (ctx) {
-          const source = ctx.createMediaElementSource(audio);
-          const gainNode = ctx.createGain();
-          gainNode.gain.value = gainMultiplier;
-          source.connect(gainNode);
-          gainNode.connect(ctx.destination);
-        } else {
-          audio.volume = Math.min(1.0, gainMultiplier);
-        }
-      } catch (e) {
-        audio.volume = Math.min(1.0, gainMultiplier);
-      }
-
-      activeAudioFallback = audio;
-      audio.play().catch(e => console.warn('Server audio play error:', e));
-    } catch (e) {
-      console.warn('Fallback audio failed:', e);
-    }
-  }
-
   function getTypeCounts() {
     if (cachedTypeCounts) return cachedTypeCounts;
     const counts = {};
-    for (let i = 0; i < allVocabQuestions.length; i++) {
-      const t = allVocabQuestions[i].question_type || 'unknown';
+    const pool = PlayerState.allVocabQuestions;
+    for (let i = 0; i < pool.length; i++) {
+      const t = pool[i].question_type || 'unknown';
       counts[t] = (counts[t] || 0) + 1;
     }
     cachedTypeCounts = counts;
     return counts;
   }
 
-  // Build question type selector buttons for vocabulary quizzes
   function buildQuestionTypeSelector() {
     const typeCounts = getTypeCounts();
 
-    // Define the order and icons for question types
     const typeDefinitions = [
       { key: 'mcq_word_meaning', icon: '⚡', colorClass: 'qtype-mcq' },
       { key: 'mcq_meaning_word', icon: '⚡', colorClass: 'qtype-mcq' },
@@ -1362,13 +736,12 @@ const QuizPlayer = (() => {
       { key: 'fill_listen_meaning', icon: '✏️', colorClass: 'qtype-fill' },
     ];
 
-    // Only show types that actually have questions
     const availableTypes = typeDefinitions.filter(td => typeCounts[td.key] > 0);
-    if (availableTypes.length <= 1) return ''; // No point showing selector if only 1 type
+    if (availableTypes.length <= 1) return '';
 
-    const allCount = allVocabQuestions.length;
+    const allCount = PlayerState.allVocabQuestions.length;
     let buttons = `
-      <button class="qtype-chip ${selectedQuestionType === 'all' ? 'active qtype-all' : ''}" 
+      <button class="qtype-chip ${PlayerState.selectedQuestionType === 'all' ? 'active qtype-all' : ''}" 
               onclick="QuizPlayer.filterByQuestionType('all')">
         <span class="qtype-chip-icon">📚</span>
         <span class="qtype-chip-label">${I18n.t('qtype.all')}</span>
@@ -1378,7 +751,7 @@ const QuizPlayer = (() => {
 
     availableTypes.forEach(td => {
       const count = typeCounts[td.key];
-      const isActive = selectedQuestionType === td.key;
+      const isActive = PlayerState.selectedQuestionType === td.key;
       buttons += `
         <button class="qtype-chip ${isActive ? 'active' : ''} ${td.colorClass}" 
                 onclick="QuizPlayer.filterByQuestionType('${td.key}')">
@@ -1398,21 +771,18 @@ const QuizPlayer = (() => {
   }
 
   function filterByQuestionType(type) {
-    selectedQuestionType = type;
-    // Re-filter from allVocabQuestions
+    PlayerState.selectedQuestionType = type;
     if (type === 'all') {
-      questionsQueue = [...allVocabQuestions];
+      PlayerState.questionsQueue = [...PlayerState.allVocabQuestions];
     } else {
-      questionsQueue = allVocabQuestions.filter(q => q.question_type === type);
+      PlayerState.questionsQueue = PlayerState.allVocabQuestions.filter(q => q.question_type === type);
     }
-    // Shuffle if enabled
-    if (settings.shuffleQuestions) {
-      questionsQueue = shuffleArray(questionsQueue);
+    if (PlayerState.settings.shuffleQuestions) {
+      PlayerState.questionsQueue = PlayerState.shuffleArray(PlayerState.questionsQueue);
     }
-    // Check if saved progress exists for this qtype
-    const saved = currentQuiz ? getSavedProgress(currentQuiz.id, type) : null;
+    const saved = PlayerState.currentQuiz ? getSavedProgress(PlayerState.currentQuiz.id, type) : null;
     if (saved && saved.results && saved.results.length > 0) {
-      results = (saved.results || []).map(r => ({
+      PlayerState.results = (saved.results || []).map(r => ({
         ...r,
         question: r.question || {
           id: r.questionId || r.question?.id,
@@ -1421,50 +791,42 @@ const QuizPlayer = (() => {
           correct_answer: r.userAnswer || ''
         }
       }));
-      questionStates = Array.isArray(saved.questionStates) ? saved.questionStates : [];
-      currentIndex = Math.min(saved.currentIndex !== undefined ? saved.currentIndex : (saved.currentQuestionIndex || 0), Math.max(0, questionsQueue.length - 1));
+      PlayerState.questionStates = Array.isArray(saved.questionStates) ? saved.questionStates : [];
+      PlayerState.currentIndex = Math.min(saved.currentIndex !== undefined ? saved.currentIndex : (saved.currentQuestionIndex || 0), Math.max(0, PlayerState.questionsQueue.length - 1));
     } else {
-      currentIndex = 0;
-      results = [];
-      questionStates = [];
+      PlayerState.currentIndex = 0;
+      PlayerState.results = [];
+      PlayerState.questionStates = [];
     }
-    usedAnswers = {};
+    PlayerState.usedAnswers = {};
     renderQuestion();
   }
 
   function jumpToQuestion(index) {
-    if (index < 0 || index >= questionsQueue.length) return;
-    if (index === currentIndex) return;
+    if (index < 0 || index >= PlayerState.questionsQueue.length) return;
+    if (index === PlayerState.currentIndex) return;
     saveProgress();
-    currentIndex = index;
+    PlayerState.currentIndex = index;
     renderQuestion();
   }
 
-  function setQuestionState(question, queueIndex, status) {
-    const key = String(question.id) + '|' + question.question_type + '|' + queueIndex;
-    const existing = questionStates.findIndex(s => s.key === key);
-    const state = { key, questionId: question.id, questionType: question.question_type, queueIndex, status };
-    if (existing >= 0) questionStates[existing] = state;
-    else questionStates.push(state);
-  }
-
   function buildVocabGridHTML() {
-    if (!currentQuiz || currentQuiz.quiz_type !== 'vocabulary') return '';
+    if (!PlayerState.currentQuiz || PlayerState.currentQuiz.quiz_type !== 'vocabulary') return '';
 
-    const targetList = questionsQueue;
+    const targetList = PlayerState.questionsQueue;
     if (!targetList || targetList.length === 0) return '';
 
     const totalN = targetList.length;
     let boxesHTML = '';
 
     targetList.forEach((q, idx) => {
-      const isCurrent = idx === currentIndex;
+      const isCurrent = idx === PlayerState.currentIndex;
       
-      const state = questionStates.find(s =>
+      const state = PlayerState.questionStates.find(s =>
         (s.queueIndex === idx && s.questionType === q.question_type) ||
         (String(s.questionId) === String(q.id) && s.questionType === q.question_type)
       );
-      const res = results.find(r =>
+      const res = PlayerState.results.find(r =>
         (r.queueIndex !== undefined && r.queueIndex === idx) ||
         r.question === q ||
         (r.question && r.question === q) ||
@@ -1503,10 +865,10 @@ const QuizPlayer = (() => {
       `;
     });
 
-    const answeredCount = questionStates.filter(s => s.status === 'correct' || s.status === 'incorrect').length;
+    const answeredCount = PlayerState.questionStates.filter(s => s.status === 'correct' || s.status === 'incorrect').length;
 
     return `
-      <div class="vocab-grid-sidebar ${isGridCollapsedOnMobile ? 'collapsed' : ''}">
+      <div class="vocab-grid-sidebar ${PlayerState.isGridCollapsedOnMobile ? 'collapsed' : ''}">
         <div class="vocab-grid-header" onclick="QuizPlayer.toggleGridCollapse()" title="Bấm để ẩn/hiện danh sách câu">
           <span class="vocab-grid-title">📋 ${I18n.t('play.questionList')} <span class="grid-collapse-arrow">▼</span></span>
           <span class="vocab-grid-stats">${answeredCount}/${totalN}</span>
@@ -1535,25 +897,23 @@ const QuizPlayer = (() => {
   }
 
   function toggleGridCollapse() {
-    isGridCollapsedOnMobile = !isGridCollapsedOnMobile;
+    PlayerState.isGridCollapsedOnMobile = !PlayerState.isGridCollapsedOnMobile;
     const sidebar = document.querySelector('.vocab-grid-sidebar');
     if (sidebar) {
-      sidebar.classList.toggle('collapsed', isGridCollapsedOnMobile);
+      sidebar.classList.toggle('collapsed', PlayerState.isGridCollapsedOnMobile);
     }
   }
 
   function submitMcqAnswer(btnEl, userAnswer) {
-    if (answered) return;
-    // Visually mark the selected option immediately
+    if (PlayerState.answered) return;
     document.querySelectorAll('.mcq-option').forEach(el => el.classList.remove('selected'));
     btnEl.classList.add('selected');
-    // Delegate to submitAnswer logic
     submitAnswer(userAnswer, btnEl);
   }
 
   function submitAnswer(overrideAnswer = null, btnEl = null) {
-    if (answered) {
-      if (Date.now() - lastAnswerTime < 150) return;
+    if (PlayerState.answered) {
+      if (Date.now() - PlayerState.lastAnswerTime < 150) return;
       const submitBtn = document.getElementById('submit-btn');
       if (submitBtn && typeof submitBtn.onclick === 'function') {
         submitBtn.onclick();
@@ -1574,19 +934,19 @@ const QuizPlayer = (() => {
       return;
     }
 
-    const q = questionsQueue[currentIndex];
+    const q = PlayerState.questionsQueue[PlayerState.currentIndex];
     const isMcq = q.question_type && q.question_type.startsWith('mcq_');
-    const isCorrect = checkAnswer(userAnswer, q.correct_answer);
+    const isCorrect = PlayerState.checkAnswer(userAnswer, q.correct_answer);
     
     const feedback = document.getElementById('answer-feedback');
     let submitBtn = document.getElementById('submit-btn');
 
-    const normalize = (str) => str.trim().toLowerCase().normalize('NFC').replace(/\s+/g, ' ');
-    const answerKey = getUsedAnswersKey(q);
+    const normalize = (str) => Utils ? Utils.normalizeText(str) : String(str || '').trim().toLowerCase().normalize('NFC').replace(/\s+/g, ' ');
+    const answerKey = PlayerState.getUsedAnswersKey(q);
 
     if (isCorrect) {
       const normalizedAnswer = normalize(userAnswer);
-      const isDuplicate = !isMcq && !settings.allowDuplicates && (usedAnswers[answerKey] || []).some(a => normalize(a) === normalizedAnswer);
+      const isDuplicate = !isMcq && !PlayerState.settings.allowDuplicates && (PlayerState.usedAnswers[answerKey] || []).some(a => normalize(a) === normalizedAnswer);
 
       if (isDuplicate) {
         if (input) {
@@ -1599,24 +959,23 @@ const QuizPlayer = (() => {
         return;
       }
 
-      if (!usedAnswers[answerKey]) usedAnswers[answerKey] = [];
-      usedAnswers[answerKey].push(userAnswer);
+      if (!PlayerState.usedAnswers[answerKey]) PlayerState.usedAnswers[answerKey] = [];
+      PlayerState.usedAnswers[answerKey].push(userAnswer);
 
-      // Correct!
-      answered = true;
-      lastAnswerTime = Date.now();
+      PlayerState.answered = true;
+      PlayerState.lastAnswerTime = Date.now();
 
-      results.push({
+      PlayerState.results.push({
         question: q,
         questionId: q.id,
         questionText: q.question_text,
         questionType: q.question_type,
-        queueIndex: currentIndex,
+        queueIndex: PlayerState.currentIndex,
         userAnswer,
         isCorrect: true,
         retries: q._failedTries || 0,
       });
-      setQuestionState(q, currentIndex, 'correct');
+      PlayerState.setQuestionState(q, PlayerState.currentIndex, 'correct');
 
       saveProgress();
 
@@ -1635,18 +994,17 @@ const QuizPlayer = (() => {
       feedback.textContent = I18n.t('play.correct');
       
       const proceedFunc = () => {
-        currentIndex++;
+        PlayerState.currentIndex++;
         renderQuestion();
       };
 
       if (submitBtn) {
-        submitBtn.textContent = currentIndex < questionsQueue.length - 1
+        submitBtn.textContent = PlayerState.currentIndex < PlayerState.questionsQueue.length - 1
           ? I18n.t('play.next') + ' →'
           : I18n.t('play.finish') + ' 🎉';
         submitBtn.onclick = proceedFunc;
       }
 
-      // Auto-advance logic
       const autoDelay = parseInt(localStorage.getItem('quizmaster-auto-advance') || '1500', 10);
       if (autoDelay >= 0) {
         document.querySelectorAll('.mcq-option').forEach(el => el.disabled = true);
@@ -1668,32 +1026,32 @@ const QuizPlayer = (() => {
         }
       }
     } else {
-      // Incorrect
       const dontRememberBtn = document.getElementById('dont-remember-btn');
       if (dontRememberBtn) dontRememberBtn.style.display = 'none';
 
       if (q._word && q._meaning) {
-        addWrongWord(q._word, q._meaning, q._ipa);
+        PlayerState.addWrongWord(q._word, q._meaning, q._ipa);
       }
 
       const currentFailures = q._failedTries || 0;
       let willRetry = false;
       
-      if (settings.maxRetries === -1 || currentFailures < settings.maxRetries) {
+      if (PlayerState.settings.maxRetries === -1 || currentFailures < PlayerState.settings.maxRetries) {
         willRetry = true;
         const retryQ = { ...q, _failedTries: currentFailures + 1 };
-        const insertIndex = currentIndex + 1 + 7;
-        if (insertIndex >= questionsQueue.length) {
-          questionsQueue.push(retryQ);
+        const insertIndex = PlayerState.currentIndex + 1 + 7;
+        if (insertIndex >= PlayerState.questionsQueue.length) {
+          PlayerState.questionsQueue.push(retryQ);
         } else {
-          questionsQueue.splice(insertIndex, 0, retryQ);
+          PlayerState.questionsQueue.splice(insertIndex, 0, retryQ);
         }
       } else {
         q._finalFailure = true;
       }
 
-      currentRetries = currentFailures + 1;
-      document.getElementById('retry-count').textContent = currentRetries;
+      PlayerState.currentRetries = currentFailures + 1;
+      const retryCountEl = document.getElementById('retry-count');
+      if (retryCountEl) retryCountEl.textContent = PlayerState.currentRetries;
       if (input) {
         input.style.borderColor = '';
         input.classList.add('incorrect');
@@ -1704,7 +1062,6 @@ const QuizPlayer = (() => {
         btnEl.classList.add('incorrect');
       }
 
-      // Show correct answer
       feedback.style.color = '';
       const safeCorrectAnswer = String(q.correct_answer || '');
       const displayAnswer = safeCorrectAnswer.includes('/')
@@ -1714,48 +1071,46 @@ const QuizPlayer = (() => {
       feedback.className = 'answer-feedback show incorrect';
       feedback.innerHTML = I18n.t('play.incorrect', { answer: `<strong>${Components.escapeHtml(displayAnswer)}</strong>` });
 
-      // Highlight the correct button if it's MCQ
       if (isMcq) {
         document.querySelectorAll('.mcq-option').forEach(el => {
           el.disabled = true;
-          if (checkAnswer(el.textContent.trim(), q.correct_answer)) {
+          if (PlayerState.checkAnswer(el.textContent.trim(), q.correct_answer)) {
             el.classList.add('correct');
           }
         });
       }
 
-      // Allow next attempt after showing answer
-      answered = true;
-      lastAnswerTime = Date.now();
+      PlayerState.answered = true;
+      PlayerState.lastAnswerTime = Date.now();
       
       if (!willRetry) {
-        results.push({
+        PlayerState.results.push({
           question: q,
           questionId: q.id,
           questionText: q.question_text,
           questionType: q.question_type,
-          queueIndex: currentIndex,
+          queueIndex: PlayerState.currentIndex,
           userAnswer,
           isCorrect: false,
-          retries: currentRetries,
+          retries: PlayerState.currentRetries,
         });
-        setQuestionState(q, currentIndex, 'incorrect');
+        PlayerState.setQuestionState(q, PlayerState.currentIndex, 'incorrect');
       }
 
       saveProgress();
 
       const proceedFunc = () => {
-        currentIndex++;
+        PlayerState.currentIndex++;
         renderQuestion();
       };
 
       if (submitBtn) {
-        submitBtn.textContent = (currentIndex < questionsQueue.length - 1 || willRetry)
+        submitBtn.textContent = (PlayerState.currentIndex < PlayerState.questionsQueue.length - 1 || willRetry)
           ? I18n.t('play.next') + ' →'
           : I18n.t('play.finish') + ' 🎉';
         submitBtn.onclick = proceedFunc;
       } else {
-        feedback.innerHTML += `<br><button class="btn btn-danger mt-2" onclick="document.getElementById('hidden-next-btn').click()">${(currentIndex < questionsQueue.length - 1 || willRetry) ? I18n.t('play.next') + ' →' : I18n.t('play.finish') + ' 🎉'}</button>`;
+        feedback.innerHTML += `<br><button class="btn btn-danger mt-2" onclick="document.getElementById('hidden-next-btn').click()">${(PlayerState.currentIndex < PlayerState.questionsQueue.length - 1 || willRetry) ? I18n.t('play.next') + ' →' : I18n.t('play.finish') + ' 🎉'}</button>`;
         const hiddenBtn = document.createElement('button');
         hiddenBtn.id = 'hidden-next-btn';
         hiddenBtn.style.display = 'none';
@@ -1766,42 +1121,42 @@ const QuizPlayer = (() => {
   }
 
   function handleDontRemember() {
-    if (answered) return;
-    answered = true;
-    lastAnswerTime = Date.now();
+    if (PlayerState.answered) return;
+    PlayerState.answered = true;
+    PlayerState.lastAnswerTime = Date.now();
 
     const dontRememberBtn = document.getElementById('dont-remember-btn');
     if (dontRememberBtn) dontRememberBtn.style.display = 'none';
 
-    const q = questionsQueue[currentIndex];
+    const q = PlayerState.questionsQueue[PlayerState.currentIndex];
     const isMcq = q.question_type && q.question_type.startsWith('mcq_');
     const feedback = document.getElementById('answer-feedback');
     let submitBtn = document.getElementById('submit-btn');
     let input = document.getElementById('answer-input');
 
     if (q._word && q._meaning) {
-      addWrongWord(q._word, q._meaning, q._ipa);
+      PlayerState.addWrongWord(q._word, q._meaning, q._ipa);
     }
 
     const currentFailures = q._failedTries || 0;
     let willRetry = false;
     
-    if (settings.maxRetries === -1 || currentFailures < settings.maxRetries) {
+    if (PlayerState.settings.maxRetries === -1 || currentFailures < PlayerState.settings.maxRetries) {
       willRetry = true;
       const retryQ = { ...q, _failedTries: currentFailures + 1 };
-      const insertIndex = currentIndex + 1 + 7;
-      if (insertIndex >= questionsQueue.length) {
-        questionsQueue.push(retryQ);
+      const insertIndex = PlayerState.currentIndex + 1 + 7;
+      if (insertIndex >= PlayerState.questionsQueue.length) {
+        PlayerState.questionsQueue.push(retryQ);
       } else {
-        questionsQueue.splice(insertIndex, 0, retryQ);
+        PlayerState.questionsQueue.splice(insertIndex, 0, retryQ);
       }
     } else {
       q._finalFailure = true;
     }
 
-    currentRetries = currentFailures + 1;
+    PlayerState.currentRetries = currentFailures + 1;
     const retryCountEl = document.getElementById('retry-count');
-    if (retryCountEl) retryCountEl.textContent = currentRetries;
+    if (retryCountEl) retryCountEl.textContent = PlayerState.currentRetries;
 
     if (input) {
       input.style.borderColor = '';
@@ -1809,7 +1164,6 @@ const QuizPlayer = (() => {
       input.classList.remove('correct');
     }
 
-    // Show correct answer
     feedback.style.color = '';
     const safeCorrectAnswer = String(q.correct_answer || '');
     const displayAnswer = safeCorrectAnswer.includes('/')
@@ -1822,40 +1176,40 @@ const QuizPlayer = (() => {
     if (isMcq) {
       document.querySelectorAll('.mcq-option').forEach(el => {
         el.disabled = true;
-        if (checkAnswer(el.textContent.trim(), q.correct_answer)) {
+        if (PlayerState.checkAnswer(el.textContent.trim(), q.correct_answer)) {
           el.classList.add('correct');
         }
       });
     }
 
     if (!willRetry) {
-      results.push({
+      PlayerState.results.push({
         question: q,
         questionId: q.id,
         questionText: q.question_text,
         questionType: q.question_type,
-        queueIndex: currentIndex,
+        queueIndex: PlayerState.currentIndex,
         userAnswer: I18n.t('play.dontRememberLabel'),
         isCorrect: false,
-        retries: currentRetries,
+        retries: PlayerState.currentRetries,
       });
     }
 
     saveProgress();
 
     const proceedFunc = () => {
-      currentIndex++;
+      PlayerState.currentIndex++;
       renderQuestion();
     };
 
     if (submitBtn) {
-      submitBtn.textContent = (currentIndex < questionsQueue.length - 1 || willRetry)
+      submitBtn.textContent = (PlayerState.currentIndex < PlayerState.questionsQueue.length - 1 || willRetry)
         ? I18n.t('play.next') + ' →'
         : I18n.t('play.finish') + ' 🎉';
       submitBtn.onclick = proceedFunc;
       submitBtn.style.display = 'inline-block';
     } else {
-      feedback.innerHTML += `<br><button class="btn btn-primary mt-2" onclick="document.getElementById('hidden-next-btn').click()">${(currentIndex < questionsQueue.length - 1 || willRetry) ? I18n.t('play.next') + ' →' : I18n.t('play.finish') + ' 🎉'}</button>`;
+      feedback.innerHTML += `<br><button class="btn btn-primary mt-2" onclick="document.getElementById('hidden-next-btn').click()">${(PlayerState.currentIndex < PlayerState.questionsQueue.length - 1 || willRetry) ? I18n.t('play.next') + ' →' : I18n.t('play.finish') + ' 🎉'}</button>`;
       const hiddenBtn = document.createElement('button');
       hiddenBtn.id = 'hidden-next-btn';
       hiddenBtn.style.display = 'none';
@@ -1864,34 +1218,18 @@ const QuizPlayer = (() => {
     }
   }
 
-  function checkAnswer(userAnswer, correctAnswer) {
-    if (!correctAnswer) return false;
-    const normalize = (str) => String(str || '').trim().toLowerCase()
-      .normalize('NFC')
-      .replace(/\s+/g, ' ');
-
-    const userNorm = normalize(userAnswer);
-
-    // Support multiple correct answers separated by /
-    const acceptedAnswers = String(correctAnswer).split('/').map(a => normalize(a));
-
-    return acceptedAnswers.some(a => a === userNorm);
-  }
-
   function renderResults() {
-    clearSavedProgress(currentQuiz ? currentQuiz.id : null);
-    const quizTitle = currentQuiz ? currentQuiz.title : '';
-    const quizId = currentQuiz ? currentQuiz.id : 0;
-    const total = results.length;
-    const correct = results.filter(r => r.isCorrect).length;
+    clearSavedProgress(PlayerState.currentQuiz ? PlayerState.currentQuiz.id : null);
+    const quizTitle = PlayerState.currentQuiz ? PlayerState.currentQuiz.title : '';
+    const quizId = PlayerState.currentQuiz ? PlayerState.currentQuiz.id : 0;
+    const total = PlayerState.results.length;
+    const correct = PlayerState.results.filter(r => r.isCorrect).length;
     const incorrect = total - correct;
     const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
 
-    // SVG ring
     const circumference = 2 * Math.PI * 65;
     const offset = circumference - (accuracy / 100) * circumference;
 
-    // Determine ring color
     let ringColor;
     if (accuracy >= 80) ringColor = '#10b981';
     else if (accuracy >= 50) ringColor = '#f59e0b';
@@ -1967,13 +1305,11 @@ const QuizPlayer = (() => {
 
     try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e) {}
 
-    // Animate score ring
     setTimeout(() => {
       const circle = document.getElementById('score-ring-circle');
       if (circle) {
         circle.style.strokeDashoffset = offset;
       }
-      // Animate percentage text
       animateCounter('score-text', 0, accuracy, 1000);
     }, 200);
   }
@@ -1985,7 +1321,7 @@ const QuizPlayer = (() => {
     function update(currentTime) {
       const elapsed = currentTime - startTime;
       const progress = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3); // easeOutCubic
+      const eased = 1 - Math.pow(1 - progress, 3);
       const current = Math.round(start + (end - start) * eased);
       el.textContent = current + '%';
       if (progress < 1) requestAnimationFrame(update);
@@ -1994,9 +1330,9 @@ const QuizPlayer = (() => {
   }
 
   function renderResultItems(filter) {
-    let filtered = results;
-    if (filter === 'correct') filtered = results.filter(r => r.isCorrect);
-    else if (filter === 'incorrect') filtered = results.filter(r => !r.isCorrect);
+    let filtered = PlayerState.results;
+    if (filter === 'correct') filtered = PlayerState.results.filter(r => r.isCorrect);
+    else if (filter === 'incorrect') filtered = PlayerState.results.filter(r => !r.isCorrect);
 
     if (filtered.length === 0) {
       return `<div class="text-center text-muted" style="padding: 24px;">—</div>`;
@@ -2005,7 +1341,6 @@ const QuizPlayer = (() => {
     return filtered.map((r, i) => {
       const icon = r.isCorrect ? '✅' : '❌';
       
-      // Clean up display question text (remove ||| options and 🎧 prefix)
       let displayQText = r.question.question_text || '';
       if (displayQText.includes('|||')) {
         displayQText = displayQText.split('|||')[0];
@@ -2051,13 +1386,11 @@ const QuizPlayer = (() => {
   }
 
   function filterResults(filter) {
-    // Update filter buttons
     document.querySelectorAll('#results-filter .filter-btn').forEach(btn => {
       btn.classList.remove('active');
     });
     event.target.classList.add('active');
 
-    // Re-render results
     document.getElementById('results-list').innerHTML = renderResultItems(filter);
   }
 
@@ -2071,12 +1404,13 @@ const QuizPlayer = (() => {
     clearSavedProgress,
     submitAnswer,
     submitMcqAnswer,
+    handleDontRemember,
     playTTS,
     filterResults,
     filterByQuestionType,
     buildFullVocabQuestions,
-    filterByQuestionType,
     toggleGridCollapse,
+    jumpToQuestion,
     clearInMemoryState
   };
 })();
