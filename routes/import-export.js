@@ -46,22 +46,77 @@ function createImportExportRouter(uploadExcel) {
           }
         }
       } else {
+        // Question Mode: Multiple Choice & Fill-in (Open-ended)
         for (const row of rows) {
-          let qText = row['Câu hỏi'] || row['Question'] || row['câu hỏi'] || row['question'] || row['Title'] || row['title'] || '';
-          let cAns = row['Đáp án'] || row['Answer'] || row['đáp án'] || row['answer'] || row['Đáp án đúng'] || row['Correct Answer'] || '';
+          let qText = row['Question Text'] || row['Câu hỏi'] || row['Question'] || row['câu hỏi'] || row['question'] || row['Title'] || row['title'] || '';
+          let qType = row['Question Type'] || row['Loại câu hỏi'] || '';
+          let opt1 = row['Option 1'] || row['Lựa chọn 1'] || '';
+          let opt2 = row['Option 2'] || row['Lựa chọn 2'] || '';
+          let opt3 = row['Option 3'] || row['Lựa chọn 3'] || '';
+          let opt4 = row['Option 4'] || row['Lựa chọn 4'] || '';
+          let opt5 = row['Option 5'] || row['Lựa chọn 5'] || '';
+          let rawCorrect = row['Correct Answer'] || row['Đáp án'] || row['Answer'] || row['đáp án'] || row['answer'] || row['Đáp án đúng'] || '';
 
-          if (!qText || !cAns) {
+          // Fallback to position-based values if column names don't match
+          if (!qText && !rawCorrect) {
             const vals = Object.values(row);
             if (vals.length >= 2) {
               qText = vals[0];
-              cAns = vals[1];
+              rawCorrect = vals[1];
             }
           }
 
-          if (qText && cAns) {
+          const qTextStr = String(qText || '').trim();
+          const qTypeStr = String(qType || '').trim();
+
+          // Skip sample instruction rows if present in template
+          if (qTextStr.includes('(required)') || qTypeStr.includes('(default is Multiple Choice)') || qTextStr === 'Text of the question') {
+            continue;
+          }
+
+          if (!qTextStr) continue;
+
+          // Check if it is a Multiple Choice question with options
+          const hasOptions = (opt1 !== '' || opt2 !== '');
+          if (hasOptions) {
+            const rawOpts = [opt1, opt2, opt3, opt4, opt5]
+              .map(o => String(o || '').trim())
+              .filter(o => o !== '');
+
+            if (rawOpts.length >= 2) {
+              let correctAnsText = String(rawCorrect || '').trim();
+              const numChoice = parseInt(correctAnsText, 10);
+
+              if (!isNaN(numChoice) && numChoice >= 1 && numChoice <= rawOpts.length) {
+                correctAnsText = rawOpts[numChoice - 1];
+              } else if (!rawOpts.some(o => o.toLowerCase() === correctAnsText.toLowerCase())) {
+                correctAnsText = rawOpts[0];
+              }
+
+              const formattedQText = `${qTextStr}|||${JSON.stringify(rawOpts)}`;
+              preview.push({
+                question_text: formattedQText,
+                correct_answer: correctAnsText,
+                question_type: 'mcq4'
+              });
+              continue;
+            }
+          }
+
+          // Open-ended / Fill-in question
+          if (qTextStr && rawCorrect !== undefined && rawCorrect !== null) {
+            let determinedType = 'fill';
+            const lowerType = qTypeStr.toLowerCase();
+            if ((lowerType.includes('từ') && lowerType.includes('phiên âm')) || (lowerType.includes('word') && lowerType.includes('ipa')) || lowerType === 'fill_word_ipa') {
+              determinedType = 'fill_word_ipa';
+            } else if ((lowerType.includes('nghĩa') && lowerType.includes('phiên âm')) || (lowerType.includes('meaning') && lowerType.includes('ipa')) || lowerType === 'fill_meaning_ipa') {
+              determinedType = 'fill_meaning_ipa';
+            }
+
             preview.push({
-              question_text: String(qText).trim(),
-              correct_answer: String(cAns).trim()
+              question_text: qTextStr,
+              correct_answer: String(rawCorrect).trim(),
+              question_type: determinedType
             });
           }
         }
@@ -97,17 +152,18 @@ function createImportExportRouter(uploadExcel) {
         ];
         filename = 'Template_TuVung.xlsx';
       } else {
+        // Matching QuizMasterMultipleChoices.xlsx structure
         data = [
-          ['Câu hỏi', 'Đáp án'],
-          ['Thủ đô của Việt Nam là gì?', 'Hà Nội'],
-          ['1 + 1 = ?', '2']
+          ['Question Text', 'Question Type', 'Option 1', 'Option 2', 'Option 3', 'Option 4', 'Option 5', 'Correct Answer'],
+          ['Thủ đô của Việt Nam là gì?', 'Multiple Choice', 'Hà Nội', 'TP. Hồ Chí Minh', 'Đà Nẵng', 'Hải Phòng', '', '1'],
+          ['1 + 1 = ?', 'Open-Ended', '', '', '', '', '', '2']
         ];
-        filename = 'Template_CauHoi.xlsx';
+        filename = 'Template_QuizMaster_CauHoi.xlsx';
       }
 
       const worksheet = XLSX.utils.aoa_to_sheet(data);
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Create a Quiz');
       const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -165,15 +221,40 @@ function createImportExportRouter(uploadExcel) {
           }
         }
       } else {
-        data.push(['Câu hỏi', 'Đáp án']);
+        // Export Question Mode matching QuizMasterMultipleChoices.xlsx
+        data.push(['Question Text', 'Question Type', 'Option 1', 'Option 2', 'Option 3', 'Option 4', 'Option 5', 'Correct Answer']);
         for (const q of qs) {
-          data.push([q.question_text, q.correct_answer]);
+          let qText = q.question_text || '';
+          if (qText.includes('|||')) {
+            const parts = qText.split('|||');
+            const promptText = parts[0];
+            let opts = [];
+            try { opts = JSON.parse(parts[1]); } catch(e) {}
+
+            const opt1 = opts[0] || '';
+            const opt2 = opts[1] || '';
+            const opt3 = opts[2] || '';
+            const opt4 = opts[3] || '';
+            const opt5 = opts[4] || '';
+
+            const correctNorm = String(q.correct_answer || '').trim().toLowerCase();
+            const foundIdx = opts.findIndex(o => String(o).trim().toLowerCase() === correctNorm);
+            const correctAnsVal = foundIdx >= 0 ? String(foundIdx + 1) : q.correct_answer;
+
+            data.push([promptText, 'Multiple Choice', opt1, opt2, opt3, opt4, opt5, correctAnsVal]);
+          } else if (q.question_type === 'fill_word_ipa') {
+            data.push([qText, 'Từ -> điền Phiên âm', '', '', '', '', '', q.correct_answer]);
+          } else if (q.question_type === 'fill_meaning_ipa') {
+            data.push([qText, 'Nghĩa -> điền Phiên âm', '', '', '', '', '', q.correct_answer]);
+          } else {
+            data.push([qText, 'Open-Ended', '', '', '', '', '', q.correct_answer]);
+          }
         }
       }
 
       const worksheet = XLSX.utils.aoa_to_sheet(data);
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1');
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Create a Quiz');
       const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
       const safeTitle = (quiz.title || 'Quiz').replace(/[^a-zA-Z0-9_\-áàảãạăắằẳẵặâấầẩẫậđéèẻẽẹêếềểễệíìỉĩịóòỏõọôốồổỗộơớờởỡợúùủũụưứừửữựýỳỷỹỵÁÀẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬĐÉÈẺẼẸÊẾỀỂỄỆÍÌỈĨỊÓÒỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÚÙỦŨỤƯỨỪỬỮỰÝỲỶỸỴ]/g, '_');

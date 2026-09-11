@@ -177,17 +177,42 @@ const QuizImport = (() => {
         thead.innerHTML = `
           <tr>
             <th>#</th>
+            <th>Loại</th>
             <th>${I18n.t('create.questionText')}</th>
             <th>${I18n.t('create.correctAnswer')}</th>
           </tr>
         `;
-        tbody.innerHTML = data.preview.map((q, i) => `
-          <tr>
-            <td>${i + 1}</td>
-            <td>${Components.escapeHtml(q.question_text || '')}</td>
-            <td>${Components.escapeHtml(q.correct_answer || '')}</td>
-          </tr>
-        `).join('');
+        tbody.innerHTML = data.preview.map((q, i) => {
+          const rawQText = q.question_text || '';
+          let isMcq = rawQText.includes('|||');
+          let displayQText = rawQText;
+          let extraInfo = '';
+
+          if (isMcq) {
+            const parts = rawQText.split('|||');
+            displayQText = parts[0];
+            try {
+              const opts = JSON.parse(parts[1]);
+              extraInfo = `<div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Các lựa chọn: ${opts.map(o => Components.escapeHtml(o)).join(' | ')}</div>`;
+            } catch(e) {}
+          }
+
+          return `
+            <tr>
+              <td>${i + 1}</td>
+              <td>
+                <span style="font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 12px; ${isMcq ? 'background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);' : 'background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);'}">
+                  ${isMcq ? '⚡ Trắc nghiệm' : '✍️ Tự luận'}
+                </span>
+              </td>
+              <td>
+                <strong style="color: var(--text-primary);">${Components.escapeHtml(displayQText)}</strong>
+                ${extraInfo}
+              </td>
+              <td><span style="color: #10b981; font-weight: 600;">${Components.escapeHtml(q.correct_answer || '')}</span></td>
+            </tr>
+          `;
+        }).join('');
       }
 
       document.getElementById('import-preview').classList.remove('hidden');

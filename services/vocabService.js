@@ -150,6 +150,8 @@ function generateQuestionsFromVocab(words) {
     if (cP) {
       generated.push({ question_text: cP, correct_answer: fillWordsForIpa, question_type: 'fill_ipa_word', ipa: cP });
       generated.push({ question_text: cP, correct_answer: fillMeaningsForIpa, question_type: 'fill_ipa_meaning', ipa: cP });
+      generated.push({ question_text: cW, correct_answer: cP, question_type: 'fill_word_ipa', ipa: cP });
+      generated.push({ question_text: cM, correct_answer: cP, question_type: 'fill_meaning_ipa', ipa: cP });
     }
 
     // 2. MCQ question types (8 types)
@@ -219,7 +221,8 @@ function generateQuestionsFromVocab(words) {
 
   const dedupeTypes = new Set([
     'mcq_word_meaning', 'mcq_meaning_word', 'mcq_word_ipa', 'mcq_meaning_ipa', 'mcq_ipa_word', 'mcq_ipa_meaning', 'mcq_listen_word', 'mcq_listen_meaning',
-    'fill_word_meaning', 'fill_meaning_word', 'fill_ipa_word', 'fill_ipa_meaning', 'fill_listen_word', 'fill_listen_meaning'
+    'fill_word_meaning', 'fill_meaning_word', 'fill_ipa_word', 'fill_ipa_meaning', 'fill_listen_word', 'fill_listen_meaning',
+    'fill_word_ipa', 'fill_meaning_ipa'
   ]);
   const seenDedupeKeys = new Set();
 

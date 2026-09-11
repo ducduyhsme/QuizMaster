@@ -18,8 +18,8 @@ const QuizPlayer = (() => {
     return PlayerState.getSavedProgress(quizId, targetQtype);
   }
 
-  function clearSavedProgress(quizId, targetQtype = null) {
-    return PlayerState.clearSavedProgress(quizId, targetQtype);
+  function clearSavedProgress(quizId, targetQtype = null, clearInMemory = false) {
+    return PlayerState.clearSavedProgress(quizId, targetQtype, clearInMemory);
   }
 
   function playTTS(text, langCode = 'en') {
@@ -158,7 +158,7 @@ const QuizPlayer = (() => {
       }));
     }
     const fullList = [];
-    const dedupeTypes = new Set(['mcq_word_ipa', 'mcq_ipa_word', 'fill_ipa_word', 'fill_word_ipa', 'mcq_listen_word', 'fill_listen_word']);
+    const dedupeTypes = new Set(['mcq_word_ipa', 'mcq_meaning_ipa', 'mcq_ipa_word', 'fill_ipa_word', 'fill_word_ipa', 'fill_meaning_ipa', 'mcq_listen_word', 'fill_listen_word']);
     const seenDedupeKeys = new Set();
 
     raw.forEach(q => {
@@ -169,7 +169,7 @@ const QuizPlayer = (() => {
         seenDedupeKeys.add(key);
       }
 
-      const isMcq = q.question_type && q.question_type.startsWith('mcq_');
+      const isMcq = (q.question_type && q.question_type.startsWith('mcq')) || (q.question_text && q.question_text.includes('|||'));
       if (isMcq) {
         fullList.push({ ...q });
       } else {
@@ -218,6 +218,7 @@ const QuizPlayer = (() => {
       const res = await fetch(`/api/quizzes/${quizId}`);
       if (!res.ok) throw new Error('Quiz not found');
       PlayerState.currentQuiz = await res.json();
+      PlayerState.resetQuizProgressState(quizId);
 
       PlayerState.settings = {
         shuffleQuestions: localStorage.getItem('quizmaster-shuffle') === 'true',
@@ -296,11 +297,17 @@ const QuizPlayer = (() => {
         cachedTypeCounts = null;
         let rawQuestions = [...PlayerState.currentQuiz.questions];
         if (PlayerState.settings.swapQA) {
-          rawQuestions = rawQuestions.map(q => ({
-            ...q,
-            question_text: q.correct_answer.split('/').join(' / '),
-            correct_answer: q.question_text,
-          }));
+          rawQuestions = rawQuestions.map(q => {
+            let swappedType = q.question_type;
+            if (q.question_type === 'fill_word_ipa') swappedType = 'fill_ipa_word';
+            else if (q.question_type === 'fill_meaning_ipa') swappedType = 'fill_ipa_meaning';
+            return {
+              ...q,
+              question_text: q.correct_answer.split('/').join(' / '),
+              correct_answer: q.question_text,
+              question_type: swappedType
+            };
+          });
         }
 
         const questionMap = new Map(rawQuestions.map(q => [String(q.id), q]));
@@ -389,6 +396,7 @@ const QuizPlayer = (() => {
       if (forceNew) {
         clearSavedProgress(quizId);
       }
+      PlayerState.resetQuizProgressState(quizId);
 
       const res = await fetch(`/api/quizzes/${quizId}`);
       if (!res.ok) throw new Error('Quiz not found');
@@ -409,16 +417,22 @@ const QuizPlayer = (() => {
       let rawQueue = [...PlayerState.currentQuiz.questions];
 
       if (PlayerState.settings.swapQA) {
-        rawQueue = rawQueue.map(q => ({
-          ...q,
-          question_text: q.correct_answer.split('/').join(' / '),
-          correct_answer: q.question_text,
-        }));
+        rawQueue = rawQueue.map(q => {
+          let swappedType = q.question_type;
+          if (q.question_type === 'fill_word_ipa') swappedType = 'fill_ipa_word';
+          else if (q.question_type === 'fill_meaning_ipa') swappedType = 'fill_ipa_meaning';
+          return {
+            ...q,
+            question_text: q.correct_answer.split('/').join(' / '),
+            correct_answer: q.question_text,
+            question_type: swappedType
+          };
+        });
       }
 
       let newQueue = [];
       rawQueue.forEach(q => {
-        const isMcq = q.question_type && q.question_type.startsWith('mcq_');
+        const isMcq = (q.question_type && q.question_type.startsWith('mcq')) || (q.question_text && q.question_text.includes('|||'));
         if (isMcq) {
           newQueue.push({ ...q });
         } else {
@@ -465,6 +479,7 @@ const QuizPlayer = (() => {
   }
 
   function renderQuestion() {
+    if (window.PlayerAudio) PlayerAudio.stopVoiceRecognition();
     const queue = PlayerState.questionsQueue;
     const idx = PlayerState.currentIndex;
     if (idx >= queue.length) {
@@ -484,7 +499,7 @@ const QuizPlayer = (() => {
 
     let displayQuestionText = q.question_text;
     let options = [];
-    const isMcq = q.question_type && q.question_type.startsWith('mcq_');
+    const isMcq = (q.question_type && q.question_type.startsWith('mcq')) || (q.question_text && q.question_text.includes('|||'));
     const isListen = q.question_type && (q.question_type.startsWith('fill_listen_') || q.question_type.startsWith('mcq_listen_'));
     const answerKey = PlayerState.getUsedAnswersKey(q);
     const answeredChips = !isMcq ? (PlayerState.usedAnswers[answerKey] || []) : [];
@@ -521,6 +536,7 @@ const QuizPlayer = (() => {
     const isMeaningOrIpaPrompt = q.question_type === 'fill_meaning_word' || 
                                 q.question_type === 'mcq_meaning_word' || 
                                 q.question_type === 'mcq_meaning_ipa' || 
+                                q.question_type === 'fill_meaning_ipa' || 
                                 q.question_type === 'fill_ipa_word' || 
                                 q.question_type === 'fill_ipa_meaning';
 
@@ -565,16 +581,29 @@ const QuizPlayer = (() => {
         ` : ''}
       `;
     } else {
-      const placeholderText = (PlayerState.currentQuiz && PlayerState.currentQuiz.quiz_type === 'vocabulary' && q.question_type)
-        ? I18n.t('qtype.' + q.question_type + '_desc')
+      const placeholderText = (q.question_type && q.question_type.startsWith('fill_'))
+        ? (I18n.t('qtype.' + q.question_type + '_desc') || I18n.t('play.answerPlaceholder'))
         : I18n.t('play.answerPlaceholder');
+
+      const voiceTitle = I18n.t('play.voiceInput') || 'Nhập bằng giọng nói';
 
       answerInputHTML = `
         <div class="answer-input-group">
-          <input type="text" class="answer-input" id="answer-input" 
-                 placeholder="${placeholderText}"
-                 autocomplete="off" spellcheck="false"
-                 onkeydown="if(event.key==='Enter' && !event.repeat){ event.preventDefault(); event.stopPropagation(); QuizPlayer.submitAnswer(); }">
+          <div class="answer-input-wrapper">
+            <button type="button" class="voice-input-btn" id="voice-input-btn" 
+                    onclick="QuizPlayer.toggleVoiceInput()" 
+                    title="${voiceTitle}" 
+                    aria-label="${voiceTitle}">
+              <svg class="voice-mic-icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+              </svg>
+            </button>
+            <input type="text" class="answer-input with-voice" id="answer-input" 
+                   placeholder="${placeholderText}"
+                   autocomplete="off" spellcheck="false"
+                   onkeydown="if(event.key==='Enter' && !event.repeat){ event.preventDefault(); event.stopPropagation(); QuizPlayer.submitAnswer(); }">
+          </div>
           <button class="answer-submit-btn" id="submit-btn" onclick="QuizPlayer.submitAnswer()">${I18n.t('play.submit')}</button>
           ${dontRememberBtnHTML}
         </div>
@@ -655,6 +684,9 @@ const QuizPlayer = (() => {
             <div class="question-card-top-row">
               <div class="question-number">
                 <span>${I18n.t('play.questionOf', { current: idx + 1, total })}</span>
+                ${(q.question_type && q.question_type !== 'fill' && !isMcq) ? `
+                  <span class="vocab-qtype-badge" style="margin-left: 8px;">🎯 ${I18n.t('qtype.' + q.question_type + '_desc') || q.question_type}</span>
+                ` : ''}
               </div>
               <div class="question-card-header-chips">
                 ${(q._failedTries && q._failedTries > 0) ? `
@@ -730,6 +762,8 @@ const QuizPlayer = (() => {
       { key: 'mcq_listen_meaning', icon: '⚡', colorClass: 'qtype-mcq' },
       { key: 'fill_word_meaning', icon: '✏️', colorClass: 'qtype-fill' },
       { key: 'fill_meaning_word', icon: '✏️', colorClass: 'qtype-fill' },
+      { key: 'fill_word_ipa', icon: '✏️', colorClass: 'qtype-fill' },
+      { key: 'fill_meaning_ipa', icon: '✏️', colorClass: 'qtype-fill' },
       { key: 'fill_ipa_word', icon: '✏️', colorClass: 'qtype-fill' },
       { key: 'fill_ipa_meaning', icon: '✏️', colorClass: 'qtype-fill' },
       { key: 'fill_listen_word', icon: '✏️', colorClass: 'qtype-fill' },
@@ -799,6 +833,103 @@ const QuizPlayer = (() => {
       PlayerState.questionStates = [];
     }
     PlayerState.usedAnswers = {};
+    renderQuestion();
+  }
+
+  function openQuestionTypeModal() {
+    if (!PlayerState.currentQuiz) return;
+
+    if (!PlayerState.allVocabQuestions || PlayerState.allVocabQuestions.length === 0) {
+      PlayerState.allVocabQuestions = buildFullVocabQuestions(PlayerState.currentQuiz, PlayerState.settings || {});
+      cachedTypeCounts = null;
+    }
+
+    const typeCounts = getTypeCounts();
+    const typeDefinitions = [
+      { key: 'mcq_word_meaning', icon: '⚡', colorClass: 'qtype-mcq' },
+      { key: 'mcq_meaning_word', icon: '⚡', colorClass: 'qtype-mcq' },
+      { key: 'mcq_word_ipa', icon: '⚡', colorClass: 'qtype-mcq' },
+      { key: 'mcq_meaning_ipa', icon: '⚡', colorClass: 'qtype-mcq' },
+      { key: 'mcq_ipa_word', icon: '⚡', colorClass: 'qtype-mcq' },
+      { key: 'mcq_ipa_meaning', icon: '⚡', colorClass: 'qtype-mcq' },
+      { key: 'mcq_listen_word', icon: '⚡', colorClass: 'qtype-mcq' },
+      { key: 'mcq_listen_meaning', icon: '⚡', colorClass: 'qtype-mcq' },
+      { key: 'fill_word_meaning', icon: '✏️', colorClass: 'qtype-fill' },
+      { key: 'fill_meaning_word', icon: '✏️', colorClass: 'qtype-fill' },
+      { key: 'fill_word_ipa', icon: '✏️', colorClass: 'qtype-fill' },
+      { key: 'fill_meaning_ipa', icon: '✏️', colorClass: 'qtype-fill' },
+      { key: 'fill_ipa_word', icon: '✏️', colorClass: 'qtype-fill' },
+      { key: 'fill_ipa_meaning', icon: '✏️', colorClass: 'qtype-fill' },
+      { key: 'fill_listen_word', icon: '✏️', colorClass: 'qtype-fill' },
+      { key: 'fill_listen_meaning', icon: '✏️', colorClass: 'qtype-fill' },
+    ];
+
+    const availableTypes = typeDefinitions.filter(td => (typeCounts[td.key] || 0) > 0);
+    const allCount = PlayerState.allVocabQuestions.length;
+
+    let buttons = `
+      <button class="qtype-chip ${PlayerState.selectedQuestionType === 'all' ? 'active qtype-all' : ''}" 
+              onclick="QuizPlayer.selectQuestionTypeAndStart('all')">
+        <span class="qtype-chip-icon">📚</span>
+        <span class="qtype-chip-label">${I18n.t('qtype.all')}</span>
+        <span class="qtype-chip-count">${allCount}</span>
+      </button>
+    `;
+
+    availableTypes.forEach(td => {
+      const count = typeCounts[td.key];
+      const isActive = PlayerState.selectedQuestionType === td.key;
+      buttons += `
+        <button class="qtype-chip ${isActive ? 'active' : ''} ${td.colorClass}" 
+                onclick="QuizPlayer.selectQuestionTypeAndStart('${td.key}')">
+          <span class="qtype-chip-icon">${td.icon}</span>
+          <span class="qtype-chip-label">${I18n.t('qtype.' + td.key)}</span>
+          <span class="qtype-chip-desc">${I18n.t('qtype.' + td.key + '_desc')}</span>
+          <span class="qtype-chip-count">${count}</span>
+        </button>
+      `;
+    });
+
+    const modalBody = `
+      <div style="text-align: center; margin-bottom: 16px; color: var(--text-secondary); font-size: 14px;">
+        ${I18n.t('results.chooseQuestionTypeDesc') || 'Chọn một loại câu hỏi để bắt đầu luyện tập:'}
+      </div>
+      <div class="qtype-selector modal-qtype-selector">
+        ${buttons}
+      </div>
+    `;
+
+    Components.showModal(
+      I18n.t('results.chooseQuestionType') || 'Chọn loại câu hỏi',
+      modalBody,
+      `<button class="btn btn-ghost" onclick="Components.closeModal()">${I18n.t('common.close')}</button>`
+    );
+
+    const modalEl = document.getElementById('modal');
+    if (modalEl) modalEl.classList.add('modal-wide');
+  }
+
+  function selectQuestionTypeAndStart(type) {
+    Components.closeModal();
+    const quizId = PlayerState.currentQuiz ? PlayerState.currentQuiz.id : null;
+    if (quizId) {
+      clearSavedProgress(quizId, null, false);
+      PlayerState.resetQuizProgressState(quizId);
+    }
+    PlayerState.selectedQuestionType = type;
+    if (type === 'all') {
+      PlayerState.questionsQueue = [...PlayerState.allVocabQuestions];
+    } else {
+      PlayerState.questionsQueue = PlayerState.allVocabQuestions.filter(q => q.question_type === type);
+    }
+    if (PlayerState.settings && PlayerState.settings.shuffleQuestions) {
+      PlayerState.questionsQueue = PlayerState.shuffleArray(PlayerState.questionsQueue);
+    }
+    PlayerState.currentIndex = 0;
+    PlayerState.results = [];
+    PlayerState.questionStates = [];
+    PlayerState.usedAnswers = {};
+    PlayerState.attachWordMetadataToQuestions(PlayerState.questionsQueue);
     renderQuestion();
   }
 
@@ -904,6 +1035,69 @@ const QuizPlayer = (() => {
     }
   }
 
+  function toggleVoiceInput() {
+    if (PlayerState.answered) return;
+    const btn = document.getElementById('voice-input-btn');
+    const input = document.getElementById('answer-input');
+    if (!btn || !input) return;
+
+    if (PlayerAudio.getIsListening()) {
+      PlayerAudio.stopVoiceRecognition();
+      btn.classList.remove('listening');
+      btn.title = I18n.t('play.voiceInput') || 'Nhập bằng giọng nói';
+      return;
+    }
+
+    const q = PlayerState.questionsQueue[PlayerState.currentIndex];
+    if (!q) return;
+
+    PlayerAudio.startVoiceRecognition({
+      question: q,
+      quiz: PlayerState.currentQuiz,
+      onStart: (config) => {
+        btn.classList.add('listening');
+        btn.title = I18n.t('play.voiceListening') || 'Đang nghe... hãy nói đáp án';
+      },
+      onInterim: (interimText, config) => {
+        input.value = interimText;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      },
+      onFinal: (processedText, config) => {
+        btn.classList.remove('listening');
+        btn.title = I18n.t('play.voiceInput') || 'Nhập bằng giọng nói';
+        if (processedText && processedText.trim()) {
+          input.value = processedText;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.focus();
+          setTimeout(() => {
+            if (!PlayerState.answered) {
+              submitAnswer(processedText);
+            }
+          }, 250);
+        }
+      },
+      onError: (errCode) => {
+        btn.classList.remove('listening');
+        btn.title = I18n.t('play.voiceInput') || 'Nhập bằng giọng nói';
+        if (errCode === 'not-supported') {
+          if (window.Components && Components.showToast) {
+            Components.showToast(I18n.t('play.voiceNotSupported') || 'Trình duyệt không hỗ trợ nhận diện giọng nói (Web Speech API).', 'error');
+          }
+        } else if (errCode === 'not-allowed') {
+          if (window.Components && Components.showToast) {
+            Components.showToast(I18n.t('play.voicePermissionDenied') || 'Vui lòng cấp quyền truy cập micro cho trang web.', 'error');
+          }
+        } else if (errCode !== 'no-speech') {
+          console.warn('Speech recognition error:', errCode);
+        }
+      },
+      onEnd: () => {
+        btn.classList.remove('listening');
+        btn.title = I18n.t('play.voiceInput') || 'Nhập bằng giọng nói';
+      }
+    });
+  }
+
   function submitMcqAnswer(btnEl, userAnswer) {
     if (PlayerState.answered) return;
     document.querySelectorAll('.mcq-option').forEach(el => el.classList.remove('selected'));
@@ -912,6 +1106,7 @@ const QuizPlayer = (() => {
   }
 
   function submitAnswer(overrideAnswer = null, btnEl = null) {
+    if (window.PlayerAudio) PlayerAudio.stopVoiceRecognition();
     if (PlayerState.answered) {
       if (Date.now() - PlayerState.lastAnswerTime < 150) return;
       const submitBtn = document.getElementById('submit-btn');
@@ -935,7 +1130,7 @@ const QuizPlayer = (() => {
     }
 
     const q = PlayerState.questionsQueue[PlayerState.currentIndex];
-    const isMcq = q.question_type && q.question_type.startsWith('mcq_');
+    const isMcq = (q.question_type && q.question_type.startsWith('mcq')) || (q.question_text && q.question_text.includes('|||'));
     const isCorrect = PlayerState.checkAnswer(userAnswer, q.correct_answer);
     
     const feedback = document.getElementById('answer-feedback');
@@ -970,6 +1165,7 @@ const QuizPlayer = (() => {
         questionId: q.id,
         questionText: q.question_text,
         questionType: q.question_type,
+        correctAnswer: q.correct_answer,
         queueIndex: PlayerState.currentIndex,
         userAnswer,
         isCorrect: true,
@@ -1089,6 +1285,7 @@ const QuizPlayer = (() => {
           questionId: q.id,
           questionText: q.question_text,
           questionType: q.question_type,
+          correctAnswer: q.correct_answer,
           queueIndex: PlayerState.currentIndex,
           userAnswer,
           isCorrect: false,
@@ -1129,7 +1326,7 @@ const QuizPlayer = (() => {
     if (dontRememberBtn) dontRememberBtn.style.display = 'none';
 
     const q = PlayerState.questionsQueue[PlayerState.currentIndex];
-    const isMcq = q.question_type && q.question_type.startsWith('mcq_');
+    const isMcq = (q.question_type && q.question_type.startsWith('mcq')) || (q.question_text && q.question_text.includes('|||'));
     const feedback = document.getElementById('answer-feedback');
     let submitBtn = document.getElementById('submit-btn');
     let input = document.getElementById('answer-input');
@@ -1188,6 +1385,7 @@ const QuizPlayer = (() => {
         questionId: q.id,
         questionText: q.question_text,
         questionType: q.question_type,
+        correctAnswer: q.correct_answer,
         queueIndex: PlayerState.currentIndex,
         userAnswer: I18n.t('play.dontRememberLabel'),
         isCorrect: false,
@@ -1219,13 +1417,18 @@ const QuizPlayer = (() => {
   }
 
   function renderResults() {
-    clearSavedProgress(PlayerState.currentQuiz ? PlayerState.currentQuiz.id : null);
     const quizTitle = PlayerState.currentQuiz ? PlayerState.currentQuiz.title : '';
     const quizId = PlayerState.currentQuiz ? PlayerState.currentQuiz.id : 0;
-    const total = PlayerState.results.length;
-    const correct = PlayerState.results.filter(r => r.isCorrect).length;
+    const isVocab = PlayerState.currentQuiz && PlayerState.currentQuiz.quiz_type === 'vocabulary';
+    const finalResults = Array.isArray(PlayerState.results) ? [...PlayerState.results] : [];
+    const total = finalResults.length;
+    const correct = finalResults.filter(r => r.isCorrect).length;
     const incorrect = total - correct;
     const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+    if (quizId) {
+      clearSavedProgress(quizId, null, false);
+    }
 
     const circumference = 2 * Math.PI * 65;
     const offset = circumference - (accuracy / 100) * circumference;
@@ -1281,9 +1484,9 @@ const QuizPlayer = (() => {
 
         <div class="card">
           <div class="results-filter" id="results-filter">
-            <button class="filter-btn active" onclick="QuizPlayer.filterResults('all')">${I18n.t('results.filterAll')} (${total})</button>
-            <button class="filter-btn" onclick="QuizPlayer.filterResults('correct')">${I18n.t('results.filterCorrect')} (${correct})</button>
-            <button class="filter-btn" onclick="QuizPlayer.filterResults('incorrect')">${I18n.t('results.filterIncorrect')} (${incorrect})</button>
+            <button class="filter-btn active" onclick="QuizPlayer.filterResults('all', this)">${I18n.t('results.filterAll')} (${total})</button>
+            <button class="filter-btn" onclick="QuizPlayer.filterResults('correct', this)">${I18n.t('results.filterCorrect')} (${correct})</button>
+            <button class="filter-btn" onclick="QuizPlayer.filterResults('incorrect', this)">${I18n.t('results.filterIncorrect')} (${incorrect})</button>
           </div>
           <div id="results-list">
             ${renderResultItems('all')}
@@ -1292,11 +1495,14 @@ const QuizPlayer = (() => {
 
         <div class="fixed-bottom-bar">
           <div class="fixed-bottom-bar-inner" style="max-width: 800px; justify-content: center; gap: 16px;">
-            <button class="btn btn-ghost btn-lg" style="flex: 1; max-width: 280px; font-weight: 600;" onclick="App.navigate('dashboard')">
+            <button class="btn btn-ghost btn-lg" style="flex: 1; max-width: 240px; font-weight: 600;" onclick="App.navigate('dashboard')">
               ← ${I18n.t('results.backToList')}
             </button>
-            ${quizId ? `<button class="btn btn-primary btn-lg" style="flex: 1; max-width: 280px; font-weight: 700; border-radius: 12px;" onclick="QuizPlayer.startQuiz(${quizId})">
+            ${quizId ? `<button class="btn btn-primary btn-lg" style="flex: 1; max-width: 240px; font-weight: 700; border-radius: 12px;" onclick="QuizPlayer.startQuiz(${quizId}, true)">
               🔄 ${I18n.t('results.playAgain')}
+            </button>` : ''}
+            ${(isVocab && quizId) ? `<button class="btn btn-secondary btn-lg" style="flex: 1; max-width: 240px; font-weight: 700; border-radius: 12px;" onclick="QuizPlayer.openQuestionTypeModal()">
+              🎯 ${I18n.t('results.chooseQuestionType')}
             </button>` : ''}
           </div>
         </div>
@@ -1330,9 +1536,9 @@ const QuizPlayer = (() => {
   }
 
   function renderResultItems(filter) {
-    let filtered = PlayerState.results;
-    if (filter === 'correct') filtered = PlayerState.results.filter(r => r.isCorrect);
-    else if (filter === 'incorrect') filtered = PlayerState.results.filter(r => !r.isCorrect);
+    let filtered = PlayerState.results || [];
+    if (filter === 'correct') filtered = filtered.filter(r => r.isCorrect);
+    else if (filter === 'incorrect') filtered = filtered.filter(r => !r.isCorrect);
 
     if (filtered.length === 0) {
       return `<div class="text-center text-muted" style="padding: 24px;">—</div>`;
@@ -1341,7 +1547,7 @@ const QuizPlayer = (() => {
     return filtered.map((r, i) => {
       const icon = r.isCorrect ? '✅' : '❌';
       
-      let displayQText = r.question.question_text || '';
+      let displayQText = (r.question && r.question.question_text) || r.questionText || '';
       if (displayQText.includes('|||')) {
         displayQText = displayQText.split('|||')[0];
       }
@@ -1349,14 +1555,15 @@ const QuizPlayer = (() => {
         displayQText = displayQText.substring(2).trim();
       }
 
-      const displayAnswer = r.question.correct_answer.includes('/')
-        ? r.question.correct_answer.split('/').join(' / ')
-        : r.question.correct_answer;
+      const rawCorrectAnswer = String((r.question && r.question.correct_answer) || r.correctAnswer || '');
+      const displayAnswer = rawCorrectAnswer.includes('/')
+        ? rawCorrectAnswer.split('/').join(' / ')
+        : rawCorrectAnswer;
 
       let answerDetail;
       if (r.isCorrect) {
         answerDetail = `
-          <span>${I18n.t('results.yourAnswer')}: <strong class="text-success">${Components.escapeHtml(r.userAnswer)}</strong></span>
+          <span>${I18n.t('results.yourAnswer')}: <strong class="text-success">${Components.escapeHtml(r.userAnswer || '')}</strong></span>
           <br>
           <span>${I18n.t('results.correctAnswer')}: <span class="correct-answer-label">${Components.escapeHtml(displayAnswer)}</span></span>
         `;
@@ -1385,13 +1592,19 @@ const QuizPlayer = (() => {
     }).join('');
   }
 
-  function filterResults(filter) {
+  function filterResults(filter, btnEl = null) {
     document.querySelectorAll('#results-filter .filter-btn').forEach(btn => {
       btn.classList.remove('active');
     });
-    event.target.classList.add('active');
+    const target = btnEl || (typeof event !== 'undefined' && event ? event.target : null);
+    if (target) {
+      target.classList.add('active');
+    }
 
-    document.getElementById('results-list').innerHTML = renderResultItems(filter);
+    const listEl = document.getElementById('results-list');
+    if (listEl) {
+      listEl.innerHTML = renderResultItems(filter);
+    }
   }
 
   return {
@@ -1408,8 +1621,11 @@ const QuizPlayer = (() => {
     playTTS,
     filterResults,
     filterByQuestionType,
+    openQuestionTypeModal,
+    selectQuestionTypeAndStart,
     buildFullVocabQuestions,
     toggleGridCollapse,
+    toggleVoiceInput,
     jumpToQuestion,
     clearInMemoryState
   };

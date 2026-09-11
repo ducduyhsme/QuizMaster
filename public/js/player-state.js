@@ -336,7 +336,17 @@ const PlayerState = (() => {
     }
   }
 
-  function clearSavedProgress(quizId, targetQtype = null) {
+  function resetQuizProgressState(quizId) {
+    if (quizId) {
+      for (const key of deletedQtypesSet) {
+        if (key.startsWith(quizId + '_')) {
+          deletedQtypesSet.delete(key);
+        }
+      }
+    }
+  }
+
+  function clearSavedProgress(quizId, targetQtype = null, clearInMemory = false) {
     if (!quizId) return Promise.resolve();
     if (saveProgressTimer) clearTimeout(saveProgressTimer);
 
@@ -371,7 +381,7 @@ const PlayerState = (() => {
       });
     }
 
-    if (currentQuiz && Number(currentQuiz.id) === Number(quizId)) {
+    if (clearInMemory && currentQuiz && Number(currentQuiz.id) === Number(quizId)) {
       if (effectiveQtype === 'all' || effectiveQtype === selectedQuestionType) {
         currentQuiz = null;
         questionsQueue = [];
@@ -428,6 +438,9 @@ const PlayerState = (() => {
   function attachWordMetadataToQuestions(questions) {
     if (!questions || questions.length === 0) return;
     const wordMap = new Map();
+    const wordOnlyMap = new Map();
+    const meaningOnlyMap = new Map();
+
     questions.forEach(q => {
       let w = '', m = '', ipa = q.ipa || '';
       if (q.question_type === 'fill_word_meaning' || q.question_type === 'mcq_word_meaning') {
@@ -443,6 +456,12 @@ const PlayerState = (() => {
           wordMap.set(key, { word: w, meaning: m, ipa });
         } else if (ipa && !wordMap.get(key).ipa) {
           wordMap.get(key).ipa = ipa;
+        }
+        if (!wordOnlyMap.has(w.toLowerCase())) {
+          wordOnlyMap.set(w.toLowerCase(), { word: w, meaning: m, ipa });
+        }
+        if (!meaningOnlyMap.has(m.toLowerCase())) {
+          meaningOnlyMap.set(m.toLowerCase(), { word: w, meaning: m, ipa });
         }
       }
     });
@@ -469,9 +488,21 @@ const PlayerState = (() => {
           q._ipa = q.ipa || '';
         }
       } else {
-        q._word = q.question_text || '';
-        q._meaning = q.correct_answer || '';
-        q._ipa = q.ipa || '';
+        const cleanPrompt = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
+        const cleanAns = (q.correct_answer || '').trim();
+        const meta = wordOnlyMap.get(cleanPrompt.toLowerCase()) || 
+                     meaningOnlyMap.get(cleanPrompt.toLowerCase()) ||
+                     wordOnlyMap.get(cleanAns.toLowerCase()) ||
+                     meaningOnlyMap.get(cleanAns.toLowerCase());
+        if (meta) {
+          q._word = meta.word;
+          q._meaning = meta.meaning;
+          q._ipa = meta.ipa || q.ipa || '';
+        } else {
+          q._word = q.question_text || '';
+          q._meaning = q.correct_answer || '';
+          q._ipa = q.ipa || '';
+        }
       }
     });
   }
@@ -537,6 +568,7 @@ const PlayerState = (() => {
     saveVocabPerQtypeProgress,
     getSavedProgress,
     clearSavedProgress,
+    resetQuizProgressState,
     shuffleArray,
     checkAnswer,
     setQuestionState,

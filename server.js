@@ -217,6 +217,7 @@ app.use('/api/sessions', createSessionsRouter(broadcastToUser));
 app.use('/api/community', require('./routes/community'));
 app.use('/api', createImportExportRouter(uploadExcel));
 app.use('/api/tts', require('./routes/tts'));
+app.use('/api/pinyin', require('./routes/pinyin'));
 
 // Catch-all SPA
 app.get('*', (req, res) => {

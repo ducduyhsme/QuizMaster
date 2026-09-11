@@ -12,14 +12,15 @@ function createQuestionsRouter(uploadImage) {
         return res.status(403).json({ error: 'Bạn không có quyền chỉnh sửa' });
       }
 
-      const { question_text, correct_answer } = req.body;
+      const { question_text, correct_answer, question_type, ipa, audio_path } = req.body;
       if (!question_text || !correct_answer) {
         return res.status(400).json({ error: 'Question text and correct answer are required' });
       }
 
       const imagePath = req.file ? `/uploads/images/${req.file.filename}` : null;
       const maxOrder = questions.getMaxOrder(quizId);
-      const qId = questions.create(quizId, question_text, correct_answer, imagePath, null, maxOrder + 1);
+      const qType = question_type || 'fill';
+      const qId = questions.create(quizId, question_text, correct_answer, imagePath, audio_path || null, maxOrder + 1, ipa || null, qType);
 
       const question = questions.getById(qId);
       res.status(201).json(question);
@@ -39,13 +40,17 @@ function createQuestionsRouter(uploadImage) {
         return res.status(403).json({ error: 'Bạn không có quyền chỉnh sửa' });
       }
 
-      const { question_text, correct_answer } = req.body;
+      const { question_text, correct_answer, question_type, ipa, audio_path } = req.body;
       let imagePath = existing.image_path;
       if (req.file) {
         imagePath = `/uploads/images/${req.file.filename}`;
       }
 
-      questions.update(qId, question_text || existing.question_text, correct_answer || existing.correct_answer, imagePath, existing.audio_path);
+      const qType = question_type !== undefined ? question_type : (existing.question_type || 'fill');
+      const qIpa = ipa !== undefined ? ipa : existing.ipa;
+      const qAudio = audio_path !== undefined ? audio_path : existing.audio_path;
+
+      questions.update(qId, question_text || existing.question_text, correct_answer || existing.correct_answer, imagePath, qAudio, qIpa, qType);
       const updated = questions.getById(qId);
       res.json(updated);
     } catch (err) {

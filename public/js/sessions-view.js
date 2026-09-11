@@ -23,11 +23,14 @@ const SessionsView = (() => {
     fill_listen_meaning: 'Nghe ➔ Chọn nghĩa (Điền từ)',
     mcq_listen_word: 'Nghe ➔ Chọn từ (Trắc nghiệm)',
     mcq_listen_meaning: 'Nghe ➔ Chọn nghĩa (Trắc nghiệm)',
+    fill_word_ipa: 'Từ ➔ Phiên âm IPA (Điền từ)',
+    fill_meaning_ipa: 'Nghĩa ➔ Phiên âm IPA (Điền từ)',
     fill_ipa_word: 'Phiên âm IPA ➔ Từ',
     fill_ipa_meaning: 'Phiên âm IPA ➔ Nghĩa',
     mcq_ipa_word: 'Phiên âm IPA ➔ Chọn từ',
     mcq_ipa_meaning: 'Phiên âm IPA ➔ Chọn nghĩa',
-    mcq_word_ipa: 'Từ ➔ Chọn phiên âm IPA'
+    mcq_word_ipa: 'Từ ➔ Chọn phiên âm IPA',
+    mcq_meaning_ipa: 'Nghĩa ➔ Chọn phiên âm IPA'
   };
 
   function getQtypeName(qtype) {

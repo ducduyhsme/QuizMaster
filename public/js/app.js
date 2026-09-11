@@ -159,7 +159,7 @@ const App = (() => {
         break;
       case 'create':
       case 'create-question':
-        QuizEditor.render();
+        QuizEditor.render(null, params[0] || 'fill');
         break;
       case 'create-vocab':
         VocabEditor.render();
@@ -286,7 +286,7 @@ const App = (() => {
         ${I18n.t('createModal.subtitle')}
       </p>
       <div class="create-mode-options">
-        <div class="create-mode-card" onclick="App.closeModal(); App.navigate('create-question');">
+        <div class="create-mode-card" onclick="App.showQuestionTypeModal();">
           <div style="font-size: 36px; margin-bottom: 12px;">📝</div>
           <h4 style="font-size: 16px; font-weight: 700; margin-bottom: 6px;" data-i18n="dashboard.modeQuestion">${I18n.t('dashboard.modeQuestion')}</h4>
           <p style="font-size: 13px; color: var(--text-muted); line-height: 1.4;" data-i18n="createModal.questionDesc">${I18n.t('createModal.questionDesc')}</p>
@@ -303,6 +303,43 @@ const App = (() => {
     `;
 
     Components.showModal(I18n.t('createModal.title'), body, footer);
+  }
+
+  function showQuestionTypeModal() {
+    const body = `
+      <p style="text-align: center; color: var(--text-secondary); margin-bottom: 20px;">
+        Vui lòng chọn loại câu hỏi cho bài Quiz mới của bạn:
+      </p>
+      <div class="create-mode-options">
+        <div class="create-mode-card" onclick="App.closeModal(); App.navigate('create-question', 'fill');">
+          <div style="font-size: 36px; margin-bottom: 12px;">✍️</div>
+          <h4 style="font-size: 16px; font-weight: 700; margin-bottom: 6px;">Tự luận (Fill-in / Open-ended)</h4>
+          <p style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">Người dùng gõ câu trả lời tự luận trực tiếp từ bàn phím.</p>
+        </div>
+        <div class="create-mode-card" onclick="App.closeModal(); App.navigate('create-question', 'mcq4');">
+          <div style="font-size: 36px; margin-bottom: 12px;">⚡</div>
+          <h4 style="font-size: 16px; font-weight: 700; margin-bottom: 6px;">Trắc nghiệm 4 đáp án</h4>
+          <p style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">Tạo câu hỏi có 4 lựa chọn (Option 1 - Option 4) để chọn đáp án đúng.</p>
+        </div>
+        <div class="create-mode-card" onclick="App.closeModal(); App.navigate('create-question', 'fill_word_ipa');">
+          <div style="font-size: 36px; margin-bottom: 12px;">🔤</div>
+          <h4 style="font-size: 16px; font-weight: 700; margin-bottom: 6px;">Xem từ, điền phiên âm</h4>
+          <p style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">Hiện Từ → người chơi gõ Phiên âm tương ứng (hỗ trợ nhiều đáp án).</p>
+        </div>
+        <div class="create-mode-card" onclick="App.closeModal(); App.navigate('create-question', 'fill_meaning_ipa');">
+          <div style="font-size: 36px; margin-bottom: 12px;">📖</div>
+          <h4 style="font-size: 16px; font-weight: 700; margin-bottom: 6px;">Xem nghĩa, điền phiên âm</h4>
+          <p style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">Hiện Nghĩa → người chơi gõ Phiên âm tương ứng (hỗ trợ nhiều đáp án).</p>
+        </div>
+      </div>
+    `;
+    const footer = `
+      <button class="btn btn-ghost" onclick="App.showCreateQuizModal()">${I18n.t('common.cancel')}</button>
+    `;
+
+    Components.showModal('Chọn loại câu hỏi', body, footer);
+    const modalEl = document.getElementById('modal');
+    if (modalEl) modalEl.classList.add('modal-wide');
   }
 
   let allQuizzes = [];
@@ -829,6 +866,7 @@ const App = (() => {
     setDashboardMode,
     createNewQuiz,
     showCreateQuizModal,
+    showQuestionTypeModal,
     playQuiz,
     editQuiz,
     deleteQuiz,

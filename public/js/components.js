@@ -52,7 +52,11 @@ const Components = (() => {
 
   function closeModal() {
     document.getElementById('modal-overlay').classList.remove('active');
-    document.getElementById('modal').classList.remove('active');
+    const modal = document.getElementById('modal');
+    if (modal) {
+      modal.classList.remove('active');
+      modal.classList.remove('modal-wide');
+    }
   }
 
   // Confirm dialog
