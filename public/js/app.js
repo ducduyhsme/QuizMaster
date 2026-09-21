@@ -402,6 +402,7 @@ const App = (() => {
     const currentLang = I18n.getLang();
     const currentTheme = localStorage.getItem('quizmaster-theme') || 'dark';
     const currentChineseFont = localStorage.getItem('quizmaster-chinese-font') || 'default';
+    const vocabInputMode = localStorage.getItem('quizmaster-vocab-input-mode') || 'input';
     const rawVolume = localStorage.getItem('quizmaster-volume');
     const currentVolume = rawVolume !== null ? parseFloat(rawVolume) : 0.5;
     const validVolume = isNaN(currentVolume) ? 0.5 : Math.max(0, Math.min(2.0, currentVolume));
@@ -545,6 +546,18 @@ const App = (() => {
               <span style="font-size: 14px; color: var(--text-secondary);">s</span>
             </div>
           </div>
+        </div>
+
+        <div class="toggle-group">
+          <div class="toggle-info">
+            <span class="toggle-label" data-i18n="settings.vocabInputMode">${I18n.t('settings.vocabInputMode')}</span>
+            <span class="toggle-desc" data-i18n="settings.vocabInputModeDesc">${I18n.t('settings.vocabInputModeDesc')}</span>
+          </div>
+          <select class="form-select" id="vocab-input-mode-select" style="width: auto; min-width: 200px;"
+                  onchange="App.updateSetting('vocab-input-mode', this.value)">
+            <option value="input" ${vocabInputMode === 'input' ? 'selected' : ''}>${I18n.t('settings.modeManual')}</option>
+            <option value="flashcard" ${vocabInputMode === 'flashcard' ? 'selected' : ''}>${I18n.t('settings.modeFlashcard')}</option>
+          </select>
         </div>
       </div>
 

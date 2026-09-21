@@ -102,7 +102,12 @@ const PlayerAudio = (() => {
 
   // --- Speech to Text (Voice Input) ---
   let activeRecognition = null;
-  let isListening = false;
+  let recognitionState = 'idle'; // 'idle' | 'starting' | 'listening' | 'stopping'
+  let safetyTimeout = null;
+
+  function isSecureContext() {
+    return Boolean(window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+  }
 
   function isSpeechRecognitionSupported() {
     return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
@@ -223,7 +228,31 @@ const PlayerAudio = (() => {
     return text;
   }
 
-  function startVoiceRecognition({ question, quiz, onStart, onInterim, onFinal, onError, onEnd }) {
+  async function startVoiceRecognition({ question, quiz, onConnecting, onStart, onInterim, onFinal, onError, onEnd }) {
+    if (recognitionState === 'starting' || recognitionState === 'listening') {
+      stopVoiceRecognition();
+      if (onEnd) onEnd();
+      return;
+    }
+
+    // Stop any active TTS audio
+    if (window.speechSynthesis) {
+      try { window.speechSynthesis.cancel(); } catch (e) {}
+    }
+    if (activeAudioFallback) {
+      try {
+        activeAudioFallback.pause();
+        activeAudioFallback.currentTime = 0;
+      } catch (e) {}
+      activeAudioFallback = null;
+    }
+
+    // Mobile / HTTP secure context check
+    if (!isSecureContext() && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+      if (onError) onError('need-https');
+      return;
+    }
+
     if (!isSpeechRecognitionSupported()) {
       if (onError) onError('not-supported');
       return;
@@ -234,17 +263,45 @@ const PlayerAudio = (() => {
     const config = getQuestionSpeechConfig(question, quiz);
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 
+    recognitionState = 'starting';
+    if (onConnecting) onConnecting(config);
+
+    if (safetyTimeout) clearTimeout(safetyTimeout);
+    safetyTimeout = setTimeout(() => {
+      if (recognitionState === 'starting') {
+        console.warn('Speech recognition start timed out after 6s');
+        stopVoiceRecognition();
+        if (onError) onError('timeout');
+      }
+    }, 6000);
+
+    // Prompt microphone permission on mobile/desktop via getUserMedia if needed
+    if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(t => t.stop());
+      } catch (permErr) {
+        if (permErr.name === 'NotAllowedError' || permErr.name === 'PermissionDeniedError') {
+          recognitionState = 'idle';
+          if (safetyTimeout) clearTimeout(safetyTimeout);
+          if (onError) onError('not-allowed');
+          return;
+        }
+      }
+    }
+
     try {
       const recognition = new SpeechRec();
       recognition.lang = config.targetLang;
       recognition.interimResults = true;
       recognition.continuous = false;
-      recognition.maxAlternatives = 3;
+      recognition.maxAlternatives = 1;
 
       activeRecognition = recognition;
 
       recognition.onstart = () => {
-        isListening = true;
+        if (safetyTimeout) clearTimeout(safetyTimeout);
+        recognitionState = 'listening';
         if (onStart) onStart(config);
       };
 
@@ -266,6 +323,7 @@ const PlayerAudio = (() => {
         }
 
         if (finalTranscript) {
+          if (safetyTimeout) clearTimeout(safetyTimeout);
           stopVoiceRecognition();
           const processed = await processRecognizedSpeech(finalTranscript, question, quiz, config.targetType);
           if (onFinal) onFinal(processed, config);
@@ -273,47 +331,66 @@ const PlayerAudio = (() => {
       };
 
       recognition.onerror = (event) => {
-        isListening = false;
-        if (onError) onError(event.error || 'recognition-error');
+        if (safetyTimeout) clearTimeout(safetyTimeout);
+        const err = event.error || 'recognition-error';
+        recognitionState = 'idle';
+        activeRecognition = null;
+        if (err === 'aborted') {
+          if (onEnd) onEnd();
+          return;
+        }
+        if (onError) onError(err);
       };
 
       recognition.onend = () => {
-        isListening = false;
+        if (safetyTimeout) clearTimeout(safetyTimeout);
+        recognitionState = 'idle';
         activeRecognition = null;
         if (onEnd) onEnd();
       };
 
       recognition.start();
     } catch (err) {
-      isListening = false;
+      if (safetyTimeout) clearTimeout(safetyTimeout);
+      recognitionState = 'idle';
       activeRecognition = null;
       if (onError) onError(err.message || 'start-failed');
     }
   }
 
   function stopVoiceRecognition() {
+    if (safetyTimeout) {
+      clearTimeout(safetyTimeout);
+      safetyTimeout = null;
+    }
     if (activeRecognition) {
       try {
         activeRecognition.abort();
       } catch (e) {}
       activeRecognition = null;
     }
-    isListening = false;
+    recognitionState = 'idle';
   }
 
   function getIsListening() {
-    return isListening;
+    return recognitionState === 'starting' || recognitionState === 'listening';
+  }
+
+  function getRecognitionState() {
+    return recognitionState;
   }
 
   return {
     playTTS,
     detectTextLanguage,
     getAudioContext,
+    isSecureContext,
     isSpeechRecognitionSupported,
     getQuestionSpeechConfig,
     startVoiceRecognition,
     stopVoiceRecognition,
     getIsListening,
+    getRecognitionState,
     processRecognizedSpeech
   };
 })();

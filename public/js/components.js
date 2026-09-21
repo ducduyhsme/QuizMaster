@@ -181,3 +181,7 @@ const Components = (() => {
     formatDate,
   };
 })();
+
+window.Components = Components;
+
+

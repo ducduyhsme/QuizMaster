@@ -18,6 +18,8 @@ const PlayerState = (() => {
   let currentPlayMode = localStorage.getItem('quizmaster-play-mode') || localStorage.getItem('quizmaster-dashboard-mode') || 'question';
   let cachedPlayQuizzes = null;
   let isGridCollapsedOnMobile = true;
+  let vocabInputMode = localStorage.getItem('quizmaster-vocab-input-mode') || 'input';
+  let flashcardFlipped = false;
   let saveProgressTimer = null;
   const deletedQtypesSet = new Set();
 
@@ -28,6 +30,7 @@ const PlayerState = (() => {
     questionStates = [];
     usedAnswers = {};
     selectedQuestionType = 'all';
+    flashcardFlipped = false;
     deletedQtypesSet.clear();
   }
 
@@ -426,84 +429,141 @@ const PlayerState = (() => {
 
   function getUsedAnswersKey(question) {
     if (!question) return '';
-    if (!question.question_type) return question.id;
     const cleanPrompt = (question.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim().toLowerCase();
-    let target = 'ans';
-    if (question.question_type.endsWith('_meaning')) target = 'meaning';
-    else if (question.question_type.endsWith('_word')) target = 'word';
-    else if (question.question_type.endsWith('_ipa')) target = 'ipa';
-    return `${cleanPrompt}_${target}`;
+    const qType = question.question_type || 'default';
+    if (question.id) {
+      return `${question.id}_${qType}_${cleanPrompt}`;
+    }
+    return `${qType}_${cleanPrompt}`;
   }
 
   function attachWordMetadataToQuestions(questions) {
     if (!questions || questions.length === 0) return;
-    const wordMap = new Map();
-    const wordOnlyMap = new Map();
-    const meaningOnlyMap = new Map();
+
+    const wordToMeanings = new Map();
+    const wordToIpas = new Map();
+    const meaningToWords = new Map();
+    const meaningToIpas = new Map();
+    const ipaToWords = new Map();
+    const ipaToMeanings = new Map();
+
+    const split = (str) => String(str || '').split('/').map(s => s.trim()).filter(Boolean);
 
     questions.forEach(q => {
-      let w = '', m = '', ipa = q.ipa || '';
-      if (q.question_type === 'fill_word_meaning' || q.question_type === 'mcq_word_meaning') {
-        w = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
-        m = (q.correct_answer || '').trim();
-      } else if (q.question_type === 'fill_meaning_word' || q.question_type === 'mcq_meaning_word') {
-        w = (q.correct_answer || '').trim();
-        m = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
+      const qtype = q.question_type || '';
+      const ipas = split(q.ipa);
+      let words = [];
+      let meanings = [];
+
+      if (qtype === 'fill_word_meaning' || qtype === 'mcq_word_meaning') {
+        words = split((q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0]);
+        meanings = split(q.correct_answer);
+      } else if (qtype === 'fill_meaning_word' || qtype === 'mcq_meaning_word') {
+        words = split(q.correct_answer);
+        meanings = split((q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0]);
+      } else if (qtype === 'fill_listen_meaning' || qtype === 'mcq_listen_meaning') {
+        words = split((q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0]);
+        meanings = split(q.correct_answer);
+      } else if (qtype === 'fill_listen_word' || qtype === 'mcq_listen_word') {
+        words = split(q.correct_answer);
+      } else if (qtype === 'fill_word_ipa' || qtype === 'mcq_word_ipa') {
+        words = split((q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0]);
+        split(q.correct_answer).forEach(p => ipas.push(p));
+      } else if (qtype === 'fill_meaning_ipa' || qtype === 'mcq_meaning_ipa') {
+        meanings = split((q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0]);
+        split(q.correct_answer).forEach(p => ipas.push(p));
+      } else if (qtype === 'fill_ipa_word' || qtype === 'mcq_ipa_word') {
+        words = split(q.correct_answer);
+        split((q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0]).forEach(p => ipas.push(p));
+      } else if (qtype === 'fill_ipa_meaning' || qtype === 'mcq_ipa_meaning') {
+        meanings = split(q.correct_answer);
+        split((q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0]).forEach(p => ipas.push(p));
       }
-      if (w && m) {
-        const key = w.toLowerCase() + ':::' + m.toLowerCase();
-        if (!wordMap.has(key)) {
-          wordMap.set(key, { word: w, meaning: m, ipa });
-        } else if (ipa && !wordMap.get(key).ipa) {
-          wordMap.get(key).ipa = ipa;
-        }
-        if (!wordOnlyMap.has(w.toLowerCase())) {
-          wordOnlyMap.set(w.toLowerCase(), { word: w, meaning: m, ipa });
-        }
-        if (!meaningOnlyMap.has(m.toLowerCase())) {
-          meaningOnlyMap.set(m.toLowerCase(), { word: w, meaning: m, ipa });
-        }
-      }
+
+      words.forEach(w => {
+        const lw = w.toLowerCase();
+        if (!wordToMeanings.has(lw)) wordToMeanings.set(lw, new Set());
+        if (!wordToIpas.has(lw)) wordToIpas.set(lw, new Set());
+        meanings.forEach(m => wordToMeanings.get(lw).add(m));
+        ipas.forEach(p => wordToIpas.get(lw).add(p));
+      });
+
+      meanings.forEach(m => {
+        const lm = m.toLowerCase();
+        if (!meaningToWords.has(lm)) meaningToWords.set(lm, new Set());
+        if (!meaningToIpas.has(lm)) meaningToIpas.set(lm, new Set());
+        words.forEach(w => meaningToWords.get(lm).add(w));
+        ipas.forEach(p => meaningToIpas.get(lm).add(p));
+      });
+
+      ipas.forEach(p => {
+        const lp = p.toLowerCase();
+        if (!ipaToWords.has(lp)) ipaToWords.set(lp, new Set());
+        if (!ipaToMeanings.has(lp)) ipaToMeanings.set(lp, new Set());
+        words.forEach(w => ipaToWords.get(lp).add(w));
+        meanings.forEach(m => ipaToMeanings.get(lp).add(m));
+      });
     });
 
     questions.forEach(q => {
-      let w = '', m = '';
-      if (q.question_type === 'fill_word_meaning' || q.question_type === 'mcq_word_meaning') {
-        w = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
-        m = (q.correct_answer || '').trim();
-      } else if (q.question_type === 'fill_meaning_word' || q.question_type === 'mcq_meaning_word') {
-        w = (q.correct_answer || '').trim();
-        m = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
+      const qtype = q.question_type || '';
+      const cleanPrompt = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
+      const cleanAns = (q.correct_answer || '').trim();
+
+      const resolvedWords = new Set();
+      const resolvedMeanings = new Set();
+      const resolvedIpas = new Set();
+
+      if (q.ipa) {
+        split(q.ipa).forEach(p => resolvedIpas.add(p));
       }
-      if (w && m) {
-        const key = w.toLowerCase() + ':::' + m.toLowerCase();
-        const meta = wordMap.get(key);
-        if (meta) {
-          q._word = meta.word;
-          q._meaning = meta.meaning;
-          q._ipa = meta.ipa || q.ipa || '';
-        } else {
-          q._word = w;
-          q._meaning = m;
-          q._ipa = q.ipa || '';
-        }
+
+      if (qtype.includes('word_meaning') || qtype.includes('listen_meaning')) {
+        split(cleanPrompt).forEach(w => resolvedWords.add(w));
+        split(cleanAns).forEach(m => resolvedMeanings.add(m));
+      } else if (qtype.includes('meaning_word')) {
+        split(cleanPrompt).forEach(m => resolvedMeanings.add(m));
+        split(cleanAns).forEach(w => resolvedWords.add(w));
+      } else if (qtype.includes('listen_word')) {
+        split(cleanPrompt).forEach(w => resolvedWords.add(w));
+        split(cleanAns).forEach(w => resolvedWords.add(w));
+      } else if (qtype.includes('word_ipa')) {
+        split(cleanPrompt).forEach(w => resolvedWords.add(w));
+        split(cleanAns).forEach(p => resolvedIpas.add(p));
+      } else if (qtype.includes('meaning_ipa')) {
+        split(cleanPrompt).forEach(m => resolvedMeanings.add(m));
+        split(cleanAns).forEach(p => resolvedIpas.add(p));
+      } else if (qtype.includes('ipa_word')) {
+        split(cleanAns).forEach(w => resolvedWords.add(w));
+        split(cleanPrompt).forEach(p => resolvedIpas.add(p));
+      } else if (qtype.includes('ipa_meaning')) {
+        split(cleanAns).forEach(m => resolvedMeanings.add(m));
+        split(cleanPrompt).forEach(p => resolvedIpas.add(p));
       } else {
-        const cleanPrompt = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim();
-        const cleanAns = (q.correct_answer || '').trim();
-        const meta = wordOnlyMap.get(cleanPrompt.toLowerCase()) || 
-                     meaningOnlyMap.get(cleanPrompt.toLowerCase()) ||
-                     wordOnlyMap.get(cleanAns.toLowerCase()) ||
-                     meaningOnlyMap.get(cleanAns.toLowerCase());
-        if (meta) {
-          q._word = meta.word;
-          q._meaning = meta.meaning;
-          q._ipa = meta.ipa || q.ipa || '';
-        } else {
-          q._word = q.question_text || '';
-          q._meaning = q.correct_answer || '';
-          q._ipa = q.ipa || '';
-        }
+        if (cleanPrompt) resolvedWords.add(cleanPrompt);
+        if (cleanAns) resolvedMeanings.add(cleanAns);
       }
+
+      // Expand using maps
+      Array.from(resolvedWords).forEach(w => {
+        const lw = w.toLowerCase();
+        (wordToMeanings.get(lw) || []).forEach(m => resolvedMeanings.add(m));
+        (wordToIpas.get(lw) || []).forEach(p => resolvedIpas.add(p));
+      });
+      Array.from(resolvedMeanings).forEach(m => {
+        const lm = m.toLowerCase();
+        (meaningToWords.get(lm) || []).forEach(w => resolvedWords.add(w));
+        (meaningToIpas.get(lm) || []).forEach(p => resolvedIpas.add(p));
+      });
+      Array.from(resolvedIpas).forEach(p => {
+        const lp = p.toLowerCase();
+        (ipaToWords.get(lp) || []).forEach(w => resolvedWords.add(w));
+        (ipaToMeanings.get(lp) || []).forEach(m => resolvedMeanings.add(m));
+      });
+
+      q._word = Array.from(resolvedWords).join(' / ') || cleanPrompt;
+      q._meaning = Array.from(resolvedMeanings).join(' / ') || cleanAns;
+      q._ipa = Array.from(resolvedIpas).join(' / ') || q.ipa || '';
     });
   }
 
@@ -562,6 +622,13 @@ const PlayerState = (() => {
     set cachedPlayQuizzes(v) { cachedPlayQuizzes = v; },
     get isGridCollapsedOnMobile() { return isGridCollapsedOnMobile; },
     set isGridCollapsedOnMobile(v) { isGridCollapsedOnMobile = v; },
+    get vocabInputMode() { return vocabInputMode; },
+    set vocabInputMode(v) { 
+      vocabInputMode = v; 
+      try { localStorage.setItem('quizmaster-vocab-input-mode', v); } catch(e){}
+    },
+    get flashcardFlipped() { return flashcardFlipped; },
+    set flashcardFlipped(v) { flashcardFlipped = !!v; },
     
     clearInMemoryState,
     saveProgress,

@@ -28,12 +28,42 @@ const QuizPlayer = (() => {
 
   // Keyboard shortcut listener
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.repeat && PlayerState.answered) {
+    const isInput = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
+
+    if ((e.key === 'Enter' || (!isInput && e.key === ' ')) && !e.repeat && PlayerState.answered) {
       if (Date.now() - PlayerState.lastAnswerTime < 150) return;
       const submitBtn = document.getElementById('submit-btn');
       if (submitBtn && typeof submitBtn.onclick === 'function') {
         e.preventDefault();
         submitBtn.onclick();
+        return;
+      }
+    }
+
+    // Flashcard shortcuts (when not typing in an input)
+    if (!isInput && PlayerState.currentQuiz && PlayerState.currentQuiz.quiz_type === 'vocabulary') {
+      const q = PlayerState.questionsQueue[PlayerState.currentIndex];
+      const isMcq = (q && ((q.question_type && q.question_type.startsWith('mcq')) || (q.question_text && q.question_text.includes('|||'))));
+      const isFlashcard = !isMcq && (PlayerState.vocabInputMode === 'flashcard');
+
+      if (isFlashcard && !PlayerState.answered) {
+        if (!PlayerState.flashcardFlipped) {
+          if (e.key === ' ' || e.key === 'Enter' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            flipFlashcard(true);
+          }
+        } else {
+          if (e.key === '1' || e.key === 'ArrowLeft' || e.key === 'x' || e.key === 'X') {
+            e.preventDefault();
+            submitFlashcardGrade(false);
+          } else if (e.key === '2' || e.key === 'ArrowRight' || e.key === 'c' || e.key === 'C') {
+            e.preventDefault();
+            submitFlashcardGrade(true);
+          } else if (e.key === ' ' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            flipFlashcard(false);
+          }
+        }
       }
     }
   });
@@ -147,16 +177,58 @@ const QuizPlayer = (() => {
     }).join('');
   }
 
-  function buildFullVocabQuestions(quiz, settingsObj) {
+  function buildFullVocabQuestions(quiz, settingsObj, mode = null) {
     if (!quiz || !quiz.questions) return [];
     let raw = [...quiz.questions];
-    if (settingsObj.swapQA) {
-      raw = raw.map(q => ({
-        ...q,
-        question_text: q.correct_answer.split('/').join(' / '),
-        correct_answer: q.question_text,
-      }));
+    if (settingsObj && settingsObj.swapQA) {
+      raw = raw.map(q => {
+        let swappedType = q.question_type;
+        if (q.question_type === 'fill_word_ipa') swappedType = 'fill_ipa_word';
+        else if (q.question_type === 'fill_meaning_ipa') swappedType = 'fill_ipa_meaning';
+        else if (q.question_type === 'fill_ipa_word') swappedType = 'fill_word_ipa';
+        else if (q.question_type === 'fill_ipa_meaning') swappedType = 'fill_meaning_ipa';
+        return {
+          ...q,
+          question_text: q.correct_answer.split('/').join(' / '),
+          correct_answer: q.question_text,
+          question_type: swappedType
+        };
+      });
     }
+
+    const inputMode = mode || PlayerState.vocabInputMode || localStorage.getItem('quizmaster-vocab-input-mode') || 'input';
+    const isFlashcard = (inputMode === 'flashcard');
+
+    if (isFlashcard) {
+      // In flashcard mode: each prompt for a question type appears exactly once,
+      // and ALL alternative answers for that question type are merged!
+      const groupedMap = new Map();
+      raw.forEach(q => {
+        const isMcq = (q.question_type && q.question_type.startsWith('mcq')) || (q.question_text && q.question_text.includes('|||'));
+        const cleanPrompt = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim().toLowerCase();
+        const key = `${q.question_type || 'fill'}:${cleanPrompt}`;
+
+        if (!groupedMap.has(key)) {
+          groupedMap.set(key, { ...q });
+        } else {
+          const existing = groupedMap.get(key);
+          if (!isMcq && q.correct_answer && existing.correct_answer) {
+            const currentAns = existing.correct_answer.split('/').map(s => s.trim()).filter(Boolean);
+            const newAns = q.correct_answer.split('/').map(s => s.trim()).filter(Boolean);
+            existing.correct_answer = Array.from(new Set([...currentAns, ...newAns])).join(' / ');
+          }
+          if (q.ipa && existing.ipa) {
+            const currentIpas = existing.ipa.split('/').map(s => s.trim()).filter(Boolean);
+            const newIpas = q.ipa.split('/').map(s => s.trim()).filter(Boolean);
+            existing.ipa = Array.from(new Set([...currentIpas, ...newIpas])).join(' / ');
+          } else if (q.ipa && !existing.ipa) {
+            existing.ipa = q.ipa;
+          }
+        }
+      });
+      return Array.from(groupedMap.values());
+    }
+
     const fullList = [];
     const dedupeTypes = new Set(['mcq_word_ipa', 'mcq_meaning_ipa', 'mcq_ipa_word', 'fill_ipa_word', 'fill_word_ipa', 'fill_meaning_ipa', 'mcq_listen_word', 'fill_listen_word']);
     const seenDedupeKeys = new Set();
@@ -565,6 +637,28 @@ const QuizPlayer = (() => {
       </button>
     ` : '';
 
+    const isVocab = PlayerState.currentQuiz && PlayerState.currentQuiz.quiz_type === 'vocabulary';
+    const vocabInputMode = (PlayerState.vocabInputMode || localStorage.getItem('quizmaster-vocab-input-mode') || 'input');
+    PlayerState.flashcardFlipped = false;
+
+    let modeSwitchHTML = '';
+    if (isVocab && !isMcq) {
+      modeSwitchHTML = `
+        <div class="vocab-input-mode-switch-wrapper">
+          <div class="vocab-input-mode-switch">
+            <button type="button" class="vocab-mode-pill ${vocabInputMode === 'input' ? 'active' : ''}" onclick="QuizPlayer.setVocabInputMode('input')">
+              ✍️ ${I18n.t('play.modeManual')}
+            </button>
+            <button type="button" class="vocab-mode-pill ${vocabInputMode === 'flashcard' ? 'active' : ''}" onclick="QuizPlayer.setVocabInputMode('flashcard')">
+              🎴 ${I18n.t('play.modeFlashcard')}
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    let cardBodyHTML = '';
+
     if (isMcq) {
       answerInputHTML = `
         <div class="mcq-options" id="mcq-options-container">
@@ -580,6 +674,92 @@ const QuizPlayer = (() => {
           </div>
         ` : ''}
       `;
+      cardBodyHTML = `
+        ${questionTextHTML}
+        ${mediaHTML}
+        ${answerInputHTML}
+      `;
+    } else if (isVocab && vocabInputMode === 'flashcard') {
+      const safeCorrectAnswer = String(q.correct_answer || '');
+      const displayAnswer = safeCorrectAnswer.includes('/')
+        ? Array.from(new Set(safeCorrectAnswer.split('/').map(s => s.trim()).filter(Boolean))).join(' / ')
+        : safeCorrectAnswer;
+
+      cardBodyHTML = `
+        ${modeSwitchHTML}
+        <div class="flashcard-container">
+          <div class="flashcard-card ${PlayerState.flashcardFlipped ? 'flipped' : ''}" id="flashcard-card" onclick="QuizPlayer.onFlashcardCardClick(event)">
+            <!-- FRONT -->
+            <div class="flashcard-face flashcard-front">
+              <div class="flashcard-prompt-area">
+                ${isListen ? `
+                  <div style="text-align: center; margin: 16px 0;">
+                    <button type="button" class="btn btn-primary btn-lg" onclick="event.stopPropagation(); QuizPlayer.playTTS('${Components.escapeHtml(displayQuestionText).replace(/'/g, "\\'")}', '${langToSpeak}')">
+                      🔊 ${I18n.t('mcq.listenAgain')}
+                    </button>
+                  </div>
+                ` : `
+                  <div class="flashcard-prompt-text">
+                    ${Components.escapeHtml(displayQuestionText)}
+                    ${(!isMeaningOrIpaPrompt) ? `
+                      <button type="button" class="tts-btn" onclick="event.stopPropagation(); QuizPlayer.playTTS('${Components.escapeHtml(displayQuestionText).replace(/'/g, "\\'")}', '${langToSpeak}')">🔊</button>
+                    ` : ''}
+                  </div>
+                `}
+                ${mediaHTML}
+              </div>
+              <div class="flashcard-flip-prompt">
+                <span class="flashcard-flip-hint">💡 ${I18n.t('play.flipCardHint')}</span>
+              </div>
+            </div>
+
+            <!-- BACK -->
+            <div class="flashcard-face flashcard-back">
+              <div class="flashcard-answer-area">
+                <div class="flashcard-answer-main">${Components.escapeHtml(displayAnswer)}</div>
+                
+                <div class="flashcard-details-box">
+                  ${q._word ? `
+                    <div class="flashcard-detail-item">
+                      <span class="detail-label">Từ vựng:</span>
+                      <span class="detail-val bold">${Components.escapeHtml(q._word)}</span>
+                      <button type="button" class="tts-btn" onclick="event.stopPropagation(); QuizPlayer.playTTS('${Components.escapeHtml(q._word).replace(/'/g, "\\'")}', '${PlayerState.currentQuiz.vocab_lang}')">🔊</button>
+                    </div>
+                  ` : ''}
+                  ${(q._ipa || q.ipa) ? `
+                    <div class="flashcard-detail-item">
+                      <span class="detail-label">Phiên âm:</span>
+                      <span class="detail-val ipa-font">${Components.escapeHtml(q._ipa || q.ipa)}</span>
+                    </div>
+                  ` : ''}
+                  ${q._meaning ? `
+                    <div class="flashcard-detail-item">
+                      <span class="detail-label">Nghĩa:</span>
+                      <span class="detail-val">${Components.escapeHtml(q._meaning)}</span>
+                    </div>
+                  ` : ''}
+                </div>
+              </div>
+
+              <div class="flashcard-grade-area" onclick="event.stopPropagation();">
+                <div class="flashcard-grade-buttons">
+                  <button type="button" class="btn btn-flashcard-wrong" id="flashcard-btn-wrong" onclick="QuizPlayer.submitFlashcardGrade(false)">
+                    <span class="btn-icon">❌</span>
+                    <span class="btn-text">${I18n.t('play.flashcardWrong')}</span>
+                    <span class="btn-key">${I18n.t('play.flashcardKeyWrong') || '[Nhấn 1]'}</span>
+                  </button>
+                  <button type="button" class="btn btn-flashcard-correct" id="flashcard-btn-correct" onclick="QuizPlayer.submitFlashcardGrade(true)">
+                    <span class="btn-icon">✅</span>
+                    <span class="btn-text">${I18n.t('play.flashcardCorrect')}</span>
+                    <span class="btn-key">${I18n.t('play.flashcardKeyCorrect') || '[Nhấn 2]'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <button class="answer-submit-btn" id="submit-btn" style="display: none; margin-top: 16px; width: 100%;"></button>
+      `;
     } else {
       const placeholderText = (q.question_type && q.question_type.startsWith('fill_'))
         ? (I18n.t('qtype.' + q.question_type + '_desc') || I18n.t('play.answerPlaceholder'))
@@ -591,7 +771,9 @@ const QuizPlayer = (() => {
         <div class="answer-input-group">
           <div class="answer-input-wrapper">
             <button type="button" class="voice-input-btn" id="voice-input-btn" 
-                    onclick="QuizPlayer.toggleVoiceInput()" 
+                    onclick="QuizPlayer.toggleVoiceInput(event)" 
+                    onpointerdown="event.stopPropagation();"
+                    ontouchstart="event.stopPropagation();"
                     title="${voiceTitle}" 
                     aria-label="${voiceTitle}">
               <svg class="voice-mic-icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
@@ -607,6 +789,12 @@ const QuizPlayer = (() => {
           <button class="answer-submit-btn" id="submit-btn" onclick="QuizPlayer.submitAnswer()">${I18n.t('play.submit')}</button>
           ${dontRememberBtnHTML}
         </div>
+      `;
+      cardBodyHTML = `
+        ${modeSwitchHTML}
+        ${questionTextHTML}
+        ${mediaHTML}
+        ${answerInputHTML}
       `;
     }
 
@@ -650,9 +838,7 @@ const QuizPlayer = (() => {
                   ).join('')}
                 </div>
               </div>
-              ${questionTextHTML}
-              ${mediaHTML}
-              ${answerInputHTML}
+              ${cardBodyHTML}
               <div class="answer-feedback" id="answer-feedback"></div>
               
               <div class="auto-advance-bar-container" id="auto-advance-container">
@@ -712,7 +898,7 @@ const QuizPlayer = (() => {
       `;
     }
 
-    if (!isMcq) {
+    if (!isMcq && vocabInputMode !== 'flashcard') {
       setTimeout(() => {
         document.getElementById('answer-input')?.focus();
       }, 100);
@@ -827,12 +1013,13 @@ const QuizPlayer = (() => {
       }));
       PlayerState.questionStates = Array.isArray(saved.questionStates) ? saved.questionStates : [];
       PlayerState.currentIndex = Math.min(saved.currentIndex !== undefined ? saved.currentIndex : (saved.currentQuestionIndex || 0), Math.max(0, PlayerState.questionsQueue.length - 1));
+      PlayerState.usedAnswers = (saved && saved.usedAnswers) ? saved.usedAnswers : {};
     } else {
       PlayerState.currentIndex = 0;
       PlayerState.results = [];
       PlayerState.questionStates = [];
+      PlayerState.usedAnswers = {};
     }
-    PlayerState.usedAnswers = {};
     renderQuestion();
   }
 
@@ -1035,7 +1222,11 @@ const QuizPlayer = (() => {
     }
   }
 
-  function toggleVoiceInput() {
+  function toggleVoiceInput(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (PlayerState.answered) return;
     const btn = document.getElementById('voice-input-btn');
     const input = document.getElementById('answer-input');
@@ -1043,7 +1234,7 @@ const QuizPlayer = (() => {
 
     if (PlayerAudio.getIsListening()) {
       PlayerAudio.stopVoiceRecognition();
-      btn.classList.remove('listening');
+      btn.classList.remove('listening', 'connecting');
       btn.title = I18n.t('play.voiceInput') || 'Nhập bằng giọng nói';
       return;
     }
@@ -1051,10 +1242,21 @@ const QuizPlayer = (() => {
     const q = PlayerState.questionsQueue[PlayerState.currentIndex];
     if (!q) return;
 
+    // Provide instant visual feedback immediately on click/touch
+    btn.classList.add('connecting');
+    btn.classList.remove('listening');
+    btn.title = I18n.t('play.voiceConnecting') || 'Đang kết nối micro...';
+
     PlayerAudio.startVoiceRecognition({
       question: q,
       quiz: PlayerState.currentQuiz,
+      onConnecting: () => {
+        btn.classList.add('connecting');
+        btn.classList.remove('listening');
+        btn.title = I18n.t('play.voiceConnecting') || 'Đang kết nối micro...';
+      },
       onStart: (config) => {
+        btn.classList.remove('connecting');
         btn.classList.add('listening');
         btn.title = I18n.t('play.voiceListening') || 'Đang nghe... hãy nói đáp án';
       },
@@ -1063,7 +1265,7 @@ const QuizPlayer = (() => {
         input.dispatchEvent(new Event('input', { bubbles: true }));
       },
       onFinal: (processedText, config) => {
-        btn.classList.remove('listening');
+        btn.classList.remove('listening', 'connecting');
         btn.title = I18n.t('play.voiceInput') || 'Nhập bằng giọng nói';
         if (processedText && processedText.trim()) {
           input.value = processedText;
@@ -1077,9 +1279,11 @@ const QuizPlayer = (() => {
         }
       },
       onError: (errCode) => {
-        btn.classList.remove('listening');
+        btn.classList.remove('listening', 'connecting');
         btn.title = I18n.t('play.voiceInput') || 'Nhập bằng giọng nói';
-        if (errCode === 'not-supported') {
+        if (errCode === 'need-https') {
+          showHttpsRedirectModal();
+        } else if (errCode === 'not-supported') {
           if (window.Components && Components.showToast) {
             Components.showToast(I18n.t('play.voiceNotSupported') || 'Trình duyệt không hỗ trợ nhận diện giọng nói (Web Speech API).', 'error');
           }
@@ -1087,15 +1291,230 @@ const QuizPlayer = (() => {
           if (window.Components && Components.showToast) {
             Components.showToast(I18n.t('play.voicePermissionDenied') || 'Vui lòng cấp quyền truy cập micro cho trang web.', 'error');
           }
-        } else if (errCode !== 'no-speech') {
+        } else if (errCode === 'timeout') {
+          if (window.Components && Components.showToast) {
+            Components.showToast(I18n.t('play.voiceTimeout') || 'Không thể kết nối dịch vụ micro. Vui lòng thử lại.', 'warning');
+          }
+        } else if (errCode === 'no-speech') {
+          if (window.Components && Components.showToast) {
+            Components.showToast(I18n.t('play.voiceNoSpeech') || 'Chưa nghe thấy giọng nói, vui lòng thử lại.', 'info');
+          }
+        } else {
           console.warn('Speech recognition error:', errCode);
         }
       },
       onEnd: () => {
-        btn.classList.remove('listening');
+        btn.classList.remove('listening', 'connecting');
         btn.title = I18n.t('play.voiceInput') || 'Nhập bằng giọng nói';
       }
     });
+  }
+
+  async function showHttpsRedirectModal() {
+    let httpsUrl = '';
+    try {
+      const res = await fetch('/api/server-info');
+      if (res.ok) {
+        const info = await res.json();
+        if (info && info.httpsPort) {
+          const currentHost = location.hostname;
+          httpsUrl = `https://${currentHost}:${info.httpsPort}${location.pathname}${location.search}${location.hash}`;
+        }
+      }
+    } catch (e) {
+      console.warn('Could not get server-info:', e);
+    }
+
+    if (!httpsUrl) {
+      const currentHost = location.hostname;
+      httpsUrl = `https://${currentHost}:3443${location.pathname}${location.search}${location.hash}`;
+    }
+
+    const title = I18n.t('play.httpsModalTitle') || 'Yêu cầu kết nối HTTPS';
+    const body = `
+      <div style="text-align: center; padding: 10px 0;">
+        <div style="font-size: 3rem; margin-bottom: 12px;">🔒</div>
+        <p style="margin-bottom: 16px; font-size: 0.95rem; line-height: 1.5; color: var(--text-color);">
+          ${I18n.t('play.httpsModalDesc') || 'Trình duyệt trên điện thoại bắt buộc sử dụng kết nối bảo mật <b>HTTPS</b> để cấp quyền microphone.'}
+        </p>
+        <div style="background: rgba(99, 102, 241, 0.1); border: 1px dashed var(--primary, #6366f1); border-radius: 8px; padding: 12px; margin-bottom: 16px; word-break: break-all; font-family: monospace; font-size: 0.9rem;">
+          <a href="${httpsUrl}" style="color: var(--primary, #6366f1); font-weight: 600; text-decoration: underline;">${httpsUrl}</a>
+        </div>
+        <div style="background: rgba(245, 158, 11, 0.1); border-left: 4px solid #f59e0b; padding: 10px 14px; text-align: left; border-radius: 6px; font-size: 0.85rem; color: var(--text-muted); line-height: 1.4;">
+          💡 <b>Lưu ý chứng chỉ mạng LAN:</b> Khi chuyển sang HTTPS, nếu trình duyệt cảnh báo "Kết nối không riêng tư" do SSL nội bộ, bạn chỉ cần chọn <b>Nâng cao (Advanced)</b> &rarr; <b>Tiếp tục truy cập (Proceed)</b> là microphone sẽ hoạt động tốt!
+        </div>
+      </div>
+    `;
+    const footer = `
+      <a href="${httpsUrl}" class="btn btn-primary" style="display: inline-flex; align-items: center; justify-content: center; text-decoration: none;">
+        🚀 Chuyển sang HTTPS ngay
+      </a>
+      <button class="btn btn-ghost" onclick="Components.closeModal()">${I18n.t('common.close') || 'Đóng'}</button>
+    `;
+
+    if (window.Components && Components.showModal) {
+      Components.showModal(title, body, footer);
+    } else {
+      alert('Vui lòng truy cập qua HTTPS để dùng microphone: ' + httpsUrl);
+    }
+  }
+
+  function setVocabInputMode(mode) {
+    if (PlayerState.vocabInputMode === mode) return;
+    PlayerState.vocabInputMode = mode;
+    localStorage.setItem('quizmaster-vocab-input-mode', mode);
+    PlayerState.flashcardFlipped = false;
+
+    if (PlayerState.currentQuiz && PlayerState.currentQuiz.quiz_type === 'vocabulary') {
+      PlayerState.allVocabQuestions = buildFullVocabQuestions(PlayerState.currentQuiz, PlayerState.settings, mode);
+      cachedTypeCounts = null;
+
+      if (mode === 'flashcard') {
+        const mergedMap = new Map();
+        PlayerState.allVocabQuestions.forEach(q => {
+          const cleanPrompt = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim().toLowerCase();
+          mergedMap.set(`${q.question_type || 'fill'}:${cleanPrompt}`, q);
+        });
+
+        const answeredKeys = new Set();
+        for (let i = 0; i <= PlayerState.currentIndex; i++) {
+          const q = PlayerState.questionsQueue[i];
+          if (q) {
+            const cleanPrompt = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim().toLowerCase();
+            answeredKeys.add(`${q.question_type || 'fill'}:${cleanPrompt}`);
+          }
+        }
+
+        const remaining = [];
+        const seenRemaining = new Set();
+        for (let i = PlayerState.currentIndex + 1; i < PlayerState.questionsQueue.length; i++) {
+          const q = PlayerState.questionsQueue[i];
+          const cleanPrompt = (q.question_text || '').replace(/^🎧\s*/, '').split('|||')[0].trim().toLowerCase();
+          const k = `${q.question_type || 'fill'}:${cleanPrompt}`;
+
+          const mergedQ = mergedMap.get(k) || q;
+          if ((q._failedTries && q._failedTries > 0) || (!answeredKeys.has(k) && !seenRemaining.has(k))) {
+            remaining.push({ ...mergedQ, _failedTries: q._failedTries });
+            seenRemaining.add(k);
+          }
+        }
+        PlayerState.questionsQueue = PlayerState.questionsQueue.slice(0, PlayerState.currentIndex + 1).concat(remaining);
+      }
+      PlayerState.attachWordMetadataToQuestions(PlayerState.questionsQueue);
+      PlayerState.attachWordMetadataToQuestions(PlayerState.allVocabQuestions);
+    }
+
+    renderQuestion();
+  }
+
+  function flipFlashcard(forceState = null) {
+    if (forceState !== null) {
+      PlayerState.flashcardFlipped = !!forceState;
+    } else {
+      PlayerState.flashcardFlipped = !PlayerState.flashcardFlipped;
+    }
+    const cardEl = document.getElementById('flashcard-card');
+    if (cardEl) {
+      cardEl.classList.toggle('flipped', PlayerState.flashcardFlipped);
+    }
+  }
+
+  function onFlashcardCardClick(event) {
+    if (event.target.closest('button, a, input, audio, .flashcard-grade-area')) return;
+    if (!PlayerState.answered) {
+      flipFlashcard();
+    }
+  }
+
+  function submitFlashcardGrade(isCorrect) {
+    if (PlayerState.answered) return;
+    const q = PlayerState.questionsQueue[PlayerState.currentIndex];
+    if (!q) return;
+
+    const correctBtn = document.getElementById('flashcard-btn-correct');
+    const wrongBtn = document.getElementById('flashcard-btn-wrong');
+    if (correctBtn) correctBtn.disabled = true;
+    if (wrongBtn) wrongBtn.disabled = true;
+
+    if (isCorrect) {
+      if (correctBtn) correctBtn.classList.add('selected');
+      const answerKey = PlayerState.getUsedAnswersKey(q);
+      const normalize = (str) => window.Utils ? Utils.normalizeText(str) : String(str || '').trim().toLowerCase().normalize('NFC').replace(/\s+/g, ' ');
+      const used = (PlayerState.usedAnswers[answerKey] || []).map(a => normalize(a));
+      const allAnswers = String(q.correct_answer || '').split('/').map(a => a.trim()).filter(Boolean);
+      const unusedAnswer = allAnswers.find(a => !used.includes(normalize(a)));
+      const chosenAnswer = unusedAnswer || allAnswers[0] || '';
+      submitAnswer(chosenAnswer);
+    } else {
+      if (wrongBtn) wrongBtn.classList.add('selected');
+      PlayerState.answered = true;
+      PlayerState.lastAnswerTime = Date.now();
+
+      if (q._word && q._meaning) {
+        PlayerState.addWrongWord(q._word, q._meaning, q._ipa);
+      }
+
+      const currentFailures = q._failedTries || 0;
+      let willRetry = false;
+      if (PlayerState.settings.maxRetries === -1 || currentFailures < PlayerState.settings.maxRetries) {
+        willRetry = true;
+        const retryQ = { ...q, _failedTries: currentFailures + 1 };
+        const insertIndex = PlayerState.currentIndex + 1 + 7;
+        if (insertIndex >= PlayerState.questionsQueue.length) {
+          PlayerState.questionsQueue.push(retryQ);
+        } else {
+          PlayerState.questionsQueue.splice(insertIndex, 0, retryQ);
+        }
+      } else {
+        q._finalFailure = true;
+      }
+
+      PlayerState.currentRetries = currentFailures + 1;
+      const retryCountEl = document.getElementById('retry-count');
+      if (retryCountEl) retryCountEl.textContent = PlayerState.currentRetries;
+
+      if (!willRetry) {
+        PlayerState.results.push({
+          question: q,
+          questionId: q.id,
+          questionText: q.question_text,
+          questionType: q.question_type,
+          correctAnswer: q.correct_answer,
+          queueIndex: PlayerState.currentIndex,
+          userAnswer: I18n.t('play.flashcardWrong') || 'Sai',
+          isCorrect: false,
+          retries: PlayerState.currentRetries,
+        });
+      }
+      PlayerState.setQuestionState(q, PlayerState.currentIndex, 'incorrect');
+
+      saveProgress();
+
+      const proceedFunc = () => {
+        PlayerState.currentIndex++;
+        renderQuestion();
+      };
+
+      const autoDelay = parseInt(localStorage.getItem('quizmaster-auto-advance') || '1500', 10);
+      if (autoDelay >= 0) {
+        if (autoDelay === 0) {
+          requestAnimationFrame(() => proceedFunc());
+        } else {
+          const container = document.getElementById('auto-advance-container');
+          const bar = document.getElementById('auto-advance-bar');
+          if (container && bar) {
+            container.style.display = 'block';
+            setTimeout(() => {
+              bar.style.transitionDuration = `${autoDelay}ms`;
+              bar.style.width = '100%';
+            }, 50);
+          }
+          setTimeout(proceedFunc, autoDelay);
+        }
+      } else {
+        setTimeout(proceedFunc, 600);
+      }
+    }
   }
 
   function submitMcqAnswer(btnEl, userAnswer) {
@@ -1138,10 +1557,12 @@ const QuizPlayer = (() => {
 
     const normalize = (str) => Utils ? Utils.normalizeText(str) : String(str || '').trim().toLowerCase().normalize('NFC').replace(/\s+/g, ' ');
     const answerKey = PlayerState.getUsedAnswersKey(q);
+    const isVocab = PlayerState.currentQuiz && PlayerState.currentQuiz.quiz_type === 'vocabulary';
+    const isFlashcard = isVocab && (PlayerState.vocabInputMode || localStorage.getItem('quizmaster-vocab-input-mode')) === 'flashcard';
 
     if (isCorrect) {
       const normalizedAnswer = normalize(userAnswer);
-      const isDuplicate = !isMcq && !PlayerState.settings.allowDuplicates && (PlayerState.usedAnswers[answerKey] || []).some(a => normalize(a) === normalizedAnswer);
+      const isDuplicate = !isMcq && !isFlashcard && !PlayerState.settings.allowDuplicates && (PlayerState.usedAnswers[answerKey] || []).some(a => normalize(a) === normalizedAnswer);
 
       if (isDuplicate) {
         if (input) {
@@ -1626,6 +2047,11 @@ const QuizPlayer = (() => {
     buildFullVocabQuestions,
     toggleGridCollapse,
     toggleVoiceInput,
+    showHttpsRedirectModal,
+    setVocabInputMode,
+    flipFlashcard,
+    onFlashcardCardClick,
+    submitFlashcardGrade,
     jumpToQuestion,
     clearInMemoryState
   };

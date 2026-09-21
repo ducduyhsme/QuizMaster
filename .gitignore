@@ -4,3 +4,5 @@ public\uploads\excel\*.xlsx
 *.xlsx
 /node_modules
 /.agents
+/certs
+

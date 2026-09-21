@@ -3,6 +3,9 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
+const os = require('os');
+const selfsigned = require('selfsigned');
 const {
   initDatabase,
   quizzes,
@@ -219,6 +222,18 @@ app.use('/api', createImportExportRouter(uploadExcel));
 app.use('/api/tts', require('./routes/tts'));
 app.use('/api/pinyin', require('./routes/pinyin'));
 
+app.get('/api/server-info', (req, res) => {
+  const localIp = getLocalIp();
+  const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
+  res.json({
+    httpPort: PORT,
+    httpsPort: HTTPS_PORT,
+    localIp,
+    httpsUrl: `https://${localIp}:${HTTPS_PORT}`,
+    isHttps: req.secure || req.protocol === 'https'
+  });
+});
+
 // Catch-all SPA
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -234,6 +249,20 @@ app.use((err, req, res, next) => {
   }
   next();
 });
+
+function getLocalIp() {
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name]) {
+        if (iface.family === 'IPv4' && !iface.internal) {
+          return iface.address;
+        }
+      }
+    }
+  } catch (e) {}
+  return 'localhost';
+}
 
 function sanitizeAllVocabQuizzesInDatabase() {
   try {
@@ -258,11 +287,52 @@ async function start() {
   try {
     await initDatabase();
     sanitizeAllVocabQuizzesInDatabase();
+
+    const localIp = getLocalIp();
+    const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
+
+    // 1. Start HTTP Server
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`\n🚀 Quiz App is running!`);
-      console.log(`   Local:    http://localhost:${PORT}`);
-      console.log(`   Network:  http://0.0.0.0:${PORT}\n`);
+      console.log(`   HTTP Local:    http://localhost:${PORT}`);
+      console.log(`   HTTP Network:  http://${localIp}:${PORT}`);
     });
+
+    // 2. Start HTTPS Server for Mobile Microphone / Web Speech support
+    try {
+      const certDir = path.join(__dirname, 'certs');
+      const certFile = path.join(certDir, 'cert.pem');
+      const keyFile = path.join(certDir, 'key.pem');
+      let certData;
+
+      if (fs.existsSync(certFile) && fs.existsSync(keyFile)) {
+        certData = {
+          cert: fs.readFileSync(certFile, 'utf8'),
+          private: fs.readFileSync(keyFile, 'utf8')
+        };
+      } else {
+        if (!fs.existsSync(certDir)) fs.mkdirSync(certDir, { recursive: true });
+        const pems = await selfsigned.generate([
+          { name: 'commonName', value: 'QuizMaster' },
+          { name: 'organizationName', value: 'QuizMaster Local' }
+        ], { days: 3650 });
+        fs.writeFileSync(certFile, pems.cert);
+        fs.writeFileSync(keyFile, pems.private);
+        certData = pems;
+      }
+
+      const httpsServer = https.createServer({
+        key: certData.private,
+        cert: certData.cert
+      }, app);
+
+      httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
+        console.log(`   HTTPS Local:   https://localhost:${HTTPS_PORT}`);
+        console.log(`   HTTPS Mobile:  https://${localIp}:${HTTPS_PORT} (📱 Dùng link này trên điện thoại để mở Mic)\n`);
+      });
+    } catch (sslErr) {
+      console.warn('⚠️ Could not start HTTPS server:', sslErr.message);
+    }
   } catch (err) {
     console.error('Failed to start server:', err);
     process.exit(1);
