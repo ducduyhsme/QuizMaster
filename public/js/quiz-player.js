@@ -40,6 +40,50 @@ const QuizPlayer = (() => {
       }
     }
 
+    const isModalActive = document.getElementById('modal-overlay')?.classList.contains('active');
+    if (isModalActive) return;
+
+    // Multiple-choice shortcuts (1, 2, 3, 4, ...)
+    if (!isInput && !PlayerState.answered && !e.repeat && PlayerState.questionsQueue) {
+      const q = PlayerState.questionsQueue[PlayerState.currentIndex];
+      const isMcq = q && ((q.question_type && q.question_type.startsWith('mcq')) || (q.question_text && q.question_text.includes('|||')));
+
+      if (isMcq) {
+        let keyNum = -1;
+        if (/^[1-9]$/.test(e.key)) {
+          keyNum = parseInt(e.key, 10);
+        } else if (e.code && /^Digit([1-9])$/.test(e.code)) {
+          keyNum = parseInt(e.code.replace('Digit', ''), 10);
+        } else if (e.code && /^Numpad([1-9])$/.test(e.code)) {
+          keyNum = parseInt(e.code.replace('Numpad', ''), 10);
+        } else if (/^[a-d]$/i.test(e.key)) {
+          keyNum = e.key.toLowerCase().charCodeAt(0) - 96;
+        }
+
+        if (keyNum >= 1) {
+          const optionBtns = document.querySelectorAll('#mcq-options-container .mcq-option');
+          if (keyNum <= optionBtns.length) {
+            const targetBtn = optionBtns[keyNum - 1];
+            if (targetBtn && !targetBtn.disabled) {
+              e.preventDefault();
+              targetBtn.click();
+              return;
+            }
+          }
+        }
+
+        const showDontRemember = PlayerState.currentQuiz && PlayerState.currentQuiz.quiz_type === 'vocabulary';
+        if ((e.key === '0' || e.key === '?' || e.code === 'Numpad0') && showDontRemember) {
+          const dontRememberBtn = document.getElementById('dont-remember-btn');
+          if (dontRememberBtn && !dontRememberBtn.disabled && dontRememberBtn.offsetParent !== null) {
+            e.preventDefault();
+            dontRememberBtn.click();
+            return;
+          }
+        }
+      }
+    }
+
     // Flashcard shortcuts (when not typing in an input)
     if (!isInput && PlayerState.currentQuiz && PlayerState.currentQuiz.quiz_type === 'vocabulary') {
       const q = PlayerState.questionsQueue[PlayerState.currentIndex];
@@ -662,9 +706,10 @@ const QuizPlayer = (() => {
     if (isMcq) {
       answerInputHTML = `
         <div class="mcq-options" id="mcq-options-container">
-          ${options.map(opt => `
-            <button class="mcq-option" onclick="QuizPlayer.submitMcqAnswer(this, '${Components.escapeHtml(opt).replace(/'/g, "\\'")}')">
-              ${Components.escapeHtml(opt)}
+          ${options.map((opt, idx) => `
+            <button class="mcq-option" data-answer="${Components.escapeHtml(opt)}" data-option-index="${idx}" onclick="QuizPlayer.submitMcqAnswer(this, '${Components.escapeHtml(opt).replace(/'/g, "\\'")}')">
+              <span class="mcq-key-badge">${idx + 1}</span>
+              <span class="mcq-option-text">${Components.escapeHtml(opt)}</span>
             </button>
           `).join('')}
         </div>
@@ -1691,7 +1736,8 @@ const QuizPlayer = (() => {
       if (isMcq) {
         document.querySelectorAll('.mcq-option').forEach(el => {
           el.disabled = true;
-          if (PlayerState.checkAnswer(el.textContent.trim(), q.correct_answer)) {
+          const optAnswer = el.getAttribute('data-answer') || (el.querySelector('.mcq-option-text') ? el.querySelector('.mcq-option-text').textContent.trim() : el.textContent.trim());
+          if (PlayerState.checkAnswer(optAnswer, q.correct_answer)) {
             el.classList.add('correct');
           }
         });
@@ -1794,7 +1840,8 @@ const QuizPlayer = (() => {
     if (isMcq) {
       document.querySelectorAll('.mcq-option').forEach(el => {
         el.disabled = true;
-        if (PlayerState.checkAnswer(el.textContent.trim(), q.correct_answer)) {
+        const optAnswer = el.getAttribute('data-answer') || (el.querySelector('.mcq-option-text') ? el.querySelector('.mcq-option-text').textContent.trim() : el.textContent.trim());
+        if (PlayerState.checkAnswer(optAnswer, q.correct_answer)) {
           el.classList.add('correct');
         }
       });

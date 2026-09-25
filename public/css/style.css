@@ -2193,12 +2193,13 @@ body[data-theme="light"] .btn-key {
 }
 
 .mcq-option {
-  padding: 28px 24px;
+  position: relative;
+  padding: 24px 56px;
   background: var(--bg-card);
   border: 2px solid var(--border-color);
   border-radius: var(--radius-lg);
   color: var(--text-primary);
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 600;
   cursor: pointer;
   transition: var(--transition-fast);
@@ -2210,14 +2211,57 @@ body[data-theme="light"] .btn-key {
   justify-content: center;
 }
 
+.mcq-option-text {
+  flex: 1;
+  text-align: center;
+  display: inline-block;
+}
+
+.mcq-key-badge {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1.5px solid var(--border-color);
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: inherit;
+  color: var(--text-muted);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: var(--transition-fast);
+  user-select: none;
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
 .mcq-option:hover:not(:disabled) {
   background: var(--bg-glass-hover);
   border-color: var(--border-focus);
 }
 
+.mcq-option:hover:not(:disabled) .mcq-key-badge {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: var(--primary);
+  color: var(--primary-light, #a5b4fc);
+  transform: translateY(-50%) scale(1.05);
+}
+
 .mcq-option.selected {
   border-color: var(--border-focus);
   background: rgba(99, 102, 241, 0.1);
+}
+
+.mcq-option.selected .mcq-key-badge {
+  background: rgba(99, 102, 241, 0.3);
+  border-color: var(--primary);
+  color: #ffffff;
 }
 
 .mcq-option.correct {
@@ -2226,10 +2270,24 @@ body[data-theme="light"] .btn-key {
   color: white !important;
 }
 
+.mcq-option.correct .mcq-key-badge {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
 .mcq-option.incorrect {
   background: var(--gradient-danger) !important;
   border-color: #ef4444 !important;
   color: white !important;
+}
+
+.mcq-option.incorrect .mcq-key-badge {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
 .tts-btn {
@@ -2784,8 +2842,16 @@ button, input, select, textarea, a, .card, .mode-btn, .qtype-chip, .mcq-option {
 
   .mcq-option {
     font-size: 18px !important;
-    min-height: 56px !important;
-    padding: 14px 14px !important;
+    min-height: 54px !important;
+    padding: 12px 44px 12px 44px !important;
+  }
+
+  .mcq-key-badge {
+    left: 10px;
+    width: 26px;
+    height: 26px;
+    font-size: 13px;
+    border-radius: 6px;
   }
 
   .answer-input-group {
@@ -3018,6 +3084,25 @@ body[data-theme="light"] .mcq-option {
 body[data-theme="light"] .mcq-option:hover:not(:disabled) {
   background: rgba(99, 102, 241, 0.06);
   border-color: #6366f1;
+}
+
+body[data-theme="light"] .mcq-key-badge {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #64748b;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+body[data-theme="light"] .mcq-option:hover:not(:disabled) .mcq-key-badge {
+  background: #e0e7ff;
+  border-color: #6366f1;
+  color: #4338ca;
+}
+
+body[data-theme="light"] .mcq-option.selected .mcq-key-badge {
+  background: #e0e7ff;
+  border-color: #6366f1;
+  color: #4338ca;
 }
 
 body[data-theme="light"] .code-badge {
