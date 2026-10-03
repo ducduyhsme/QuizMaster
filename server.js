@@ -28,8 +28,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 const uploadsDir = path.join(__dirname, 'public', 'uploads');
 const imagesDir = path.join(uploadsDir, 'images');
 const audioDir = path.join(uploadsDir, 'audio');
-const excelDir = path.join(uploadsDir, 'excel');
-[uploadsDir, imagesDir, audioDir, excelDir].forEach(dir => {
+const tempExcelDir = path.join(__dirname, 'data', 'temp_excel');
+[uploadsDir, imagesDir, audioDir, tempExcelDir].forEach(dir => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
@@ -51,10 +51,10 @@ const audioStorage = multer.diskStorage({
 });
 
 const excelStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, excelDir),
+  destination: (req, file, cb) => cb(null, tempExcelDir),
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
-    cb(null, `excel_${Date.now()}${ext}`);
+    cb(null, `excel_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`);
   }
 });
 
@@ -80,6 +80,7 @@ const uploadExcel = multer({
 
 // Auth & Session Middleware
 const activeSessions = new Map();
+const { requireAuth } = require('./middleware/auth');
 
 function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -88,10 +89,6 @@ function authenticate(req, res, next) {
     token = authHeader.substring(7);
   } else if (req.headers['x-session-token']) {
     token = req.headers['x-session-token'];
-  } else if (req.body && req.body.token) {
-    token = req.body.token;
-  } else if (req.query && req.query.token) {
-    token = req.query.token;
   }
 
   if (token) {
@@ -107,16 +104,7 @@ function authenticate(req, res, next) {
     }
   }
 
-  if (req.body && req.body.userId) {
-    req.user = { userId: parseInt(req.body.userId), username: 'user' };
-    return next();
-  }
-  if (req.query && req.query.userId) {
-    req.user = { userId: parseInt(req.query.userId), username: 'user' };
-    return next();
-  }
-
-  req.user = { userId: 1, username: 'admin' };
+  req.user = null;
   next();
 }
 
@@ -178,7 +166,7 @@ app.get('/api/sync/events', (req, res) => {
 });
 
 // Settings APIs
-app.get('/api/settings', (req, res) => {
+app.get('/api/settings', requireAuth, (req, res) => {
   try {
     const userSet = settings.getByUserId(req.user.userId);
     res.json(userSet || {});
@@ -187,7 +175,7 @@ app.get('/api/settings', (req, res) => {
   }
 });
 
-app.post('/api/settings', (req, res) => {
+app.post('/api/settings', requireAuth, (req, res) => {
   try {
     const settingsData = req.body;
     if (!settingsData || typeof settingsData !== 'object') {
@@ -216,7 +204,7 @@ const createImportExportRouter = require('./routes/import-export');
 app.use('/api/auth', createAuthRouter(activeSessions));
 app.use('/api/quizzes', require('./routes/quizzes'));
 app.use('/api', createQuestionsRouter(uploadImage));
-app.use('/api/sessions', createSessionsRouter(broadcastToUser));
+app.use('/api/sessions', requireAuth, createSessionsRouter(broadcastToUser));
 app.use('/api/community', require('./routes/community'));
 app.use('/api', createImportExportRouter(uploadExcel));
 app.use('/api/tts', require('./routes/tts'));
@@ -292,10 +280,20 @@ async function start() {
     const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
 
     // 1. Start HTTP Server
-    app.listen(PORT, '0.0.0.0', () => {
+    const httpServer = app.listen(PORT, '0.0.0.0', () => {
       console.log(`\n🚀 Quiz App is running!`);
       console.log(`   HTTP Local:    http://localhost:${PORT}`);
       console.log(`   HTTP Network:  http://${localIp}:${PORT}`);
+    });
+
+    httpServer.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`\n❌ Cổng ${PORT} đang được sử dụng bởi tiến trình khác (EADDRINUSE).`);
+        console.error(`👉 Hãy dừng tiến trình cũ hoặc chạy lệnh: npx kill-port ${PORT}\n`);
+      } else {
+        console.error('HTTP Server error:', err);
+      }
+      process.exit(1);
     });
 
     // 2. Start HTTPS Server for Mobile Microphone / Web Speech support
@@ -329,6 +327,14 @@ async function start() {
       httpsServer.listen(HTTPS_PORT, '0.0.0.0', () => {
         console.log(`   HTTPS Local:   https://localhost:${HTTPS_PORT}`);
         console.log(`   HTTPS Mobile:  https://${localIp}:${HTTPS_PORT} (📱 Dùng link này trên điện thoại để mở Mic)\n`);
+      });
+
+      httpsServer.on('error', (sslErr) => {
+        if (sslErr.code === 'EADDRINUSE') {
+          console.warn(`⚠️ Cổng HTTPS ${HTTPS_PORT} đang bị chiếm dụng bởi tiến trình khác.`);
+        } else {
+          console.warn('⚠️ Could not start HTTPS server:', sslErr.message);
+        }
       });
     } catch (sslErr) {
       console.warn('⚠️ Could not start HTTPS server:', sslErr.message);

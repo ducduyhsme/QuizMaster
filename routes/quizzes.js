@@ -1,10 +1,11 @@
 const express = require('express');
 const { quizzes, questions, bulkInsertQuestions, ensureWrongQuizForUser } = require('../database');
 const { generateQuestionsFromVocab, ensureVocabQuizUpToDate } = require('../services/vocabService');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-router.get('/', (req, res) => {
+router.get('/', requireAuth, (req, res) => {
   try {
     const userQuizzes = quizzes.getAllForUser(req.user.userId);
     res.json(userQuizzes);
@@ -15,7 +16,8 @@ router.get('/', (req, res) => {
 
 router.get('/code/:code', (req, res) => {
   try {
-    const quiz = quizzes.getByCode(req.params.code, req.user.userId);
+    const currentUserId = req.user ? req.user.userId : null;
+    const quiz = quizzes.getByCode(req.params.code, currentUserId);
     if (!quiz) return res.status(404).json({ error: 'Quiz không tồn tại hoặc ở chế độ Riêng tư' });
     let qs = questions.getByQuizId(quiz.id);
     qs = ensureVocabQuizUpToDate(quiz, qs);
@@ -30,7 +32,8 @@ router.get('/:id', (req, res) => {
     const quiz = quizzes.getById(parseInt(req.params.id));
     if (!quiz) return res.status(404).json({ error: 'Quiz not found' });
     
-    if (quiz.visibility === 'private' && Number(quiz.user_id) !== Number(req.user.userId)) {
+    const currentUserId = req.user ? req.user.userId : null;
+    if (quiz.visibility === 'private' && (!currentUserId || Number(quiz.user_id) !== Number(currentUserId))) {
       return res.status(403).json({ error: 'Quiz này ở chế độ Riêng tư' });
     }
 
@@ -42,7 +45,7 @@ router.get('/:id', (req, res) => {
   }
 });
 
-router.post('/', (req, res) => {
+router.post('/', requireAuth, (req, res) => {
   try {
     const { title, description, visibility = 'private' } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
@@ -55,7 +58,7 @@ router.post('/', (req, res) => {
   }
 });
 
-router.put('/:id', (req, res) => {
+router.put('/:id', requireAuth, (req, res) => {
   try {
     const quizId = parseInt(req.params.id);
     const { title, description, visibility = 'private' } = req.body;
@@ -72,7 +75,7 @@ router.put('/:id', (req, res) => {
   }
 });
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireAuth, (req, res) => {
   try {
     const quizId = parseInt(req.params.id);
     const deleted = quizzes.delete(quizId, req.user.userId);
@@ -85,7 +88,7 @@ router.delete('/:id', (req, res) => {
 
 // --- Vocabulary Quiz Routes ---
 
-router.post('/vocabulary', (req, res) => {
+router.post('/vocabulary', requireAuth, (req, res) => {
   try {
     const { title, description, vocab_lang, meaning_lang, words, visibility = 'private' } = req.body;
     if (!title || !words || !words.length) {
@@ -104,7 +107,7 @@ router.post('/vocabulary', (req, res) => {
   }
 });
 
-router.put('/:id/vocabulary', (req, res) => {
+router.put('/:id/vocabulary', requireAuth, (req, res) => {
   try {
     const quizId = parseInt(req.params.id);
     const { title, description, vocab_lang, meaning_lang, words, visibility = 'private' } = req.body;
@@ -129,7 +132,7 @@ router.put('/:id/vocabulary', (req, res) => {
   }
 });
 
-router.post('/wrong-words/add', (req, res) => {
+router.post('/wrong-words/add', requireAuth, (req, res) => {
   try {
     const { word, meaning, ipa } = req.body;
     if (!word || !meaning) {

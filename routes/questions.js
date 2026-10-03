@@ -1,10 +1,11 @@
 const express = require('express');
 const { quizzes, questions } = require('../database');
+const { requireAuth } = require('../middleware/auth');
 
 function createQuestionsRouter(uploadImage) {
   const router = express.Router();
 
-  router.post('/quizzes/:id/questions', uploadImage.single('image'), (req, res) => {
+  router.post('/quizzes/:id/questions', requireAuth, uploadImage.single('image'), (req, res) => {
     try {
       const quizId = parseInt(req.params.id);
       const quiz = quizzes.getById(quizId);
@@ -29,7 +30,7 @@ function createQuestionsRouter(uploadImage) {
     }
   });
 
-  router.put('/questions/:id', uploadImage.single('image'), (req, res) => {
+  router.put('/questions/:id', requireAuth, uploadImage.single('image'), (req, res) => {
     try {
       const qId = parseInt(req.params.id);
       const existing = questions.getById(qId);
@@ -58,7 +59,7 @@ function createQuestionsRouter(uploadImage) {
     }
   });
 
-  router.delete('/questions/:id', (req, res) => {
+  router.delete('/questions/:id', requireAuth, (req, res) => {
     try {
       const qId = parseInt(req.params.id);
       const existing = questions.getById(qId);

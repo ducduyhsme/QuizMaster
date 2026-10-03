@@ -1,11 +1,13 @@
 const express = require('express');
+const fs = require('fs');
 const XLSX = require('xlsx');
 const { quizzes, questions } = require('../database');
+const { requireAuth } = require('../middleware/auth');
 
 function createImportExportRouter(uploadExcel) {
   const router = express.Router();
 
-  router.post('/import/preview', uploadExcel.any(), (req, res) => {
+  router.post('/import/preview', requireAuth, uploadExcel.any(), (req, res) => {
     try {
       const file = (req.files && req.files.length > 0) ? req.files[0] : req.file;
       if (!file) return res.status(400).json({ error: 'Vui lòng chọn file Excel' });
@@ -129,6 +131,10 @@ function createImportExportRouter(uploadExcel) {
       res.json({ preview, total: preview.length, filename: file.originalname });
     } catch (err) {
       res.status(500).json({ error: err.message || 'Lỗi khi xử lý file Excel' });
+    } finally {
+      if (file && file.path && fs.existsSync(file.path)) {
+        try { fs.unlinkSync(file.path); } catch (e) {}
+      }
     }
   });
 
@@ -180,6 +186,11 @@ function createImportExportRouter(uploadExcel) {
       const quiz = quizzes.getById(quizId);
       if (!quiz) {
         return res.status(404).json({ error: 'Quiz không tồn tại' });
+      }
+
+      const currentUserId = req.user ? req.user.userId : null;
+      if (quiz.visibility === 'private' && (!currentUserId || Number(quiz.user_id) !== Number(currentUserId))) {
+        return res.status(403).json({ error: 'Quiz này ở chế độ Riêng tư, bạn không có quyền tải xuống' });
       }
 
       const qs = questions.getByQuizId(quizId);

@@ -821,10 +821,16 @@ const App = (() => {
     }
   }
 
-  function deleteQuiz(id, title) {
+  function deleteQuiz(id, title = null) {
+    let quizTitle = title;
+    if (!quizTitle && Array.isArray(allQuizzes)) {
+      const found = allQuizzes.find(q => Number(q.id) === Number(id));
+      if (found) quizTitle = found.title;
+    }
+    const safeTitle = Components.escapeHtml(quizTitle || '');
     Components.showConfirm(
       I18n.t('common.delete'),
-      I18n.t('common.deleteQuizConfirm', { title }),
+      I18n.t('common.deleteQuizConfirm', { title: safeTitle }),
       async () => {
         try {
           const res = await fetch(`/api/quizzes/${id}`, { method: 'DELETE' });

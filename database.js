@@ -13,8 +13,9 @@ if (!fs.existsSync(dataDir)) {
 
 let db = null;
 
-function hashPassword(password) {
-  return crypto.createHash('sha256').update(String(password)).digest('hex');
+function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+  const hash = crypto.scryptSync(String(password), salt, 64).toString('hex');
+  return `scrypt$${salt}$${hash}`;
 }
 
 async function initDatabase() {
@@ -225,7 +226,33 @@ const users = {
     return user;
   },
   verifyPassword(user, password) {
-    return user && user.password_hash === hashPassword(password);
+    if (!user || !user.password_hash) return false;
+    const stored = user.password_hash;
+    if (stored.startsWith('scrypt$')) {
+      const parts = stored.split('$');
+      if (parts.length === 3) {
+        const salt = parts[1];
+        const origHash = parts[2];
+        const testHash = crypto.scryptSync(String(password), salt, 64).toString('hex');
+        try {
+          return crypto.timingSafeEqual(Buffer.from(testHash, 'hex'), Buffer.from(origHash, 'hex'));
+        } catch (e) {
+          return false;
+        }
+      }
+    }
+    // Backward compatibility for legacy SHA-256 passwords
+    const legacyHash = crypto.createHash('sha256').update(String(password)).digest('hex');
+    if (legacyHash === stored) {
+      // Auto-upgrade to scrypt
+      try {
+        users.changePassword(user.id, password);
+      } catch (e) {
+        console.warn('Auto-upgrade password hash error:', e.message);
+      }
+      return true;
+    }
+    return false;
   },
   changePassword(userId, newPassword) {
     const passwordHash = hashPassword(newPassword);
@@ -328,6 +355,11 @@ const quizzes = {
   cloneToUser(quizId, targetUserId) {
     const original = queryOne('SELECT * FROM quizzes WHERE id = ?', [quizId]);
     if (!original) return null;
+
+    // Defense-in-depth: only allow cloning public quizzes or quizzes owned by the user
+    if (original.visibility !== 'public' && Number(original.user_id) !== Number(targetUserId)) {
+      return null;
+    }
 
     const newCode = generateUniqueCode();
     const newTitle = `${original.title} (Sao chép)`;
