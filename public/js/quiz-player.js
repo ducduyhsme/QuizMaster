@@ -56,8 +56,6 @@ const QuizPlayer = (() => {
           keyNum = parseInt(e.code.replace('Digit', ''), 10);
         } else if (e.code && /^Numpad([1-9])$/.test(e.code)) {
           keyNum = parseInt(e.code.replace('Numpad', ''), 10);
-        } else if (/^[a-d]$/i.test(e.key)) {
-          keyNum = e.key.toLowerCase().charCodeAt(0) - 96;
         }
 
         if (keyNum >= 1) {
