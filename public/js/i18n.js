@@ -348,6 +348,9 @@ const I18n = (() => {
 
       // Export/Import
       'export.downloadExcel': 'Xuất Excel',
+      'export.exporting': 'Đang xuất file Excel...',
+      'export.success': 'Đã xuất file Excel thành công!',
+      'export.failed': 'Không thể xuất file Excel',
       'import.modeQuestion': 'Câu hỏi',
       'import.modeVocab': 'Từ vựng',
       'import.vocabFormatHint': 'File Excel cần có các cột "Từ vựng", "Nghĩa", và "Phiên âm" (tùy chọn)',
@@ -711,6 +714,9 @@ const I18n = (() => {
 
       // Export/Import
       'export.downloadExcel': 'Export Excel',
+      'export.exporting': 'Exporting Excel file...',
+      'export.success': 'Excel file exported successfully!',
+      'export.failed': 'Could not export Excel file',
       'import.modeQuestion': 'Questions',
       'import.modeVocab': 'Vocabulary',
       'import.vocabFormatHint': 'Excel file must have "Word", "Meaning", and "IPA" (optional) columns',

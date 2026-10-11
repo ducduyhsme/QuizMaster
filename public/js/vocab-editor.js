@@ -138,7 +138,7 @@ const VocabEditor = (() => {
         <div class="fixed-bottom-bar-inner">
           <button id="cancel-btn" class="btn btn-ghost btn-lg" data-i18n="common.cancel">Hủy</button>
           <div style="display: flex; gap: 12px; align-items: center;">
-            ${existingQuiz ? `<a href="/api/export/${existingQuiz.id}" class="btn btn-ghost btn-lg" download style="display: inline-flex; align-items: center; gap: 6px;">📤 ${I18n.t('export.downloadExcel')}</a>` : ''}
+            ${existingQuiz ? `<button type="button" class="btn btn-ghost btn-lg" onclick="App.exportQuiz(${existingQuiz.id}, event)" style="display: inline-flex; align-items: center; gap: 6px;">📤 ${I18n.t('export.downloadExcel')}</button>` : ''}
             <button id="save-quiz-btn" class="btn btn-primary btn-lg" style="padding: 12px 28px; font-weight: 700; border-radius: 12px; cursor: pointer;">
               <span class="btn-icon">💾</span> <span data-i18n="vocab.save">Lưu thành Quiz</span>
             </button>

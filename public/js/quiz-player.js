@@ -207,9 +207,9 @@ const QuizPlayer = (() => {
             <button class="btn btn-ghost edit-quiz-btn" onclick="event.stopPropagation(); App.editQuiz(${q.id}, '${q.quiz_type || 'question'}')" title="${I18n.t('common.edit')}">
               ✏️ ${I18n.t('common.edit')}
             </button>
-            <a href="/api/export/${q.id}" class="btn btn-ghost export-quiz-btn" onclick="event.stopPropagation();" download title="Xuất file Excel" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+            <button type="button" class="btn btn-ghost export-quiz-btn" onclick="App.exportQuiz(${q.id}, event)" title="${I18n.t('export.downloadExcel') || 'Xuất file Excel'}" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
               📤 ${I18n.t('export.downloadExcel') || 'Xuất Excel'}
-            </a>
+            </button>
             <button class="btn btn-primary start-quiz-btn" onclick="event.stopPropagation(); QuizPlayer.startQuiz(${q.id})">
               ${hasSaved ? '▶ ' + I18n.t('resume.continue') : '▶ ' + I18n.t('play.start')}
             </button>

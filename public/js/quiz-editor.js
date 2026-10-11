@@ -68,7 +68,7 @@ const QuizEditor = (() => {
         <div class="fixed-bottom-bar-inner">
           <button class="btn btn-ghost btn-lg" onclick="App.navigate('dashboard')">${I18n.t('create.cancel')}</button>
           <div style="display: flex; gap: 12px; align-items: center;">
-            ${isEdit ? `<a href="/api/export/${quizId}" class="btn btn-ghost btn-lg" download style="display: inline-flex; align-items: center; gap: 6px;">📤 ${I18n.t('export.downloadExcel')}</a>` : ''}
+            ${isEdit ? `<button type="button" class="btn btn-ghost btn-lg" onclick="App.exportQuiz(${quizId}, event)" style="display: inline-flex; align-items: center; gap: 6px;">📤 ${I18n.t('export.downloadExcel')}</button>` : ''}
             <button class="btn btn-primary btn-lg" onclick="QuizEditor.save()" style="padding: 12px 28px; font-weight: 700; border-radius: 12px; cursor: pointer;">💾 ${I18n.t('create.save')}</button>
           </div>
         </div>

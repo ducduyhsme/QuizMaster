@@ -29,6 +29,12 @@ const Auth = (() => {
     return !!token && !!currentUser;
   }
 
+  if (token) {
+    try {
+      document.cookie = 'quizmaster_token=' + encodeURIComponent(token) + '; path=/; max-age=2592000; SameSite=Lax';
+    } catch (e) {}
+  }
+
   function setSession(userObj, tokenStr) {
     currentUser = userObj;
     token = tokenStr;
@@ -39,6 +45,9 @@ const Auth = (() => {
     if (userObj && tokenStr) {
       localStorage.setItem('quizmaster-user', JSON.stringify(userObj));
       localStorage.setItem('quizmaster-token', tokenStr);
+      try {
+        document.cookie = 'quizmaster_token=' + encodeURIComponent(tokenStr) + '; path=/; max-age=2592000; SameSite=Lax';
+      } catch (e) {}
       if (window.SyncManager && typeof SyncManager.init === 'function') {
         SyncManager.init();
       }
@@ -48,6 +57,9 @@ const Auth = (() => {
     } else {
       localStorage.removeItem('quizmaster-user');
       localStorage.removeItem('quizmaster-token');
+      try {
+        document.cookie = 'quizmaster_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+      } catch (e) {}
       if (window.SyncManager && typeof SyncManager.disconnect === 'function') {
         SyncManager.disconnect();
       }

@@ -871,6 +871,54 @@ const App = (() => {
     overlay.classList.toggle('active');
   }
 
+  async function exportQuiz(quizId, event) {
+    if (event) {
+      if (typeof event.preventDefault === 'function') event.preventDefault();
+      if (typeof event.stopPropagation === 'function') event.stopPropagation();
+    }
+    try {
+      Components.showToast('⏳ ' + (I18n.t('export.exporting') || 'Đang xuất file Excel...'), 'info');
+      const res = await fetch(`/api/export/${quizId}`);
+      if (!res.ok) {
+        let errMsg = I18n.t('export.failed') || 'Không thể xuất file Excel';
+        try {
+          const data = await res.json();
+          if (data && data.error) errMsg = data.error;
+        } catch (e) {}
+        Components.showToast(`❌ ${errMsg}`, 'error');
+        return;
+      }
+
+      let filename = `Quiz_${quizId}.xlsx`;
+      const disposition = res.headers.get('Content-Disposition');
+      if (disposition) {
+        const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match) {
+          try { filename = decodeURIComponent(utf8Match[1]); } catch (e) {}
+        } else {
+          const match = disposition.match(/filename="?([^";]+)"?/i);
+          if (match) filename = match[1];
+        }
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        if (a.parentNode) document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }, 300);
+      Components.showToast('✅ ' + (I18n.t('export.success') || 'Đã xuất file Excel thành công!'), 'success');
+    } catch (err) {
+      console.error('Export error:', err);
+      Components.showToast(`❌ ${err.message}`, 'error');
+    }
+  }
+
   // Init on DOM ready
   document.addEventListener('DOMContentLoaded', init);
 
@@ -892,6 +940,7 @@ const App = (() => {
     playQuiz,
     editQuiz,
     deleteQuiz,
+    exportQuiz,
     copyCode,
     updateSetting,
     onAutoAdvanceSelectChange,

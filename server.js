@@ -89,6 +89,20 @@ function authenticate(req, res, next) {
     token = authHeader.substring(7);
   } else if (req.headers['x-session-token']) {
     token = req.headers['x-session-token'];
+  } else if (req.query && req.query.token) {
+    token = req.query.token;
+  } else if (req.headers.cookie) {
+    const rawCookies = req.headers.cookie.split(';');
+    for (const c of rawCookies) {
+      const trimmed = c.trim();
+      if (trimmed.startsWith('quizmaster_token=')) {
+        token = trimmed.substring('quizmaster_token='.length);
+        break;
+      } else if (trimmed.startsWith('auth_token=')) {
+        token = trimmed.substring('auth_token='.length);
+        break;
+      }
+    }
   }
 
   if (token) {
