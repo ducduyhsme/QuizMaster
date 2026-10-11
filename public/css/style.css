@@ -3802,9 +3802,65 @@ body[data-theme="light"] .result-item:hover {
   }
 }
 
-/* --- Chinese Font (SimSun) Override (Applied ONLY to Question Text / Đề bài) --- */
-body[data-chinese-font="simsun"] .question-text {
-  font-family: 'SimSun', STSong, 'Songti SC', 'SimSun-ExtB', serif !important;
+/* ==========================================================================
+   Chinese Font Customization (Applied ONLY to Chinese Hanzi characters)
+   Uses CSS @font-face with unicode-range so that only Chinese ideographs
+   (chữ tượng hình tiếng Trung) render in the selected font, while Vietnamese,
+   English, Pinyin, numbers, and symbols remain in their native font (Inter).
+   ========================================================================== */
+
+@font-face {
+  font-family: 'QuizChineseSimSun';
+  src: local('SimSun'), local('宋体'), local('Songti SC'), local('STSong'), local('NSimSun'), local('新宋体'), local('Songti TC'), local('Noto Serif SC'), serif;
+  unicode-range: U+4E00-9FFF, U+3400-4DBF, U+20000-2A6DF, U+2A700-2B73F, U+2B740-2B81F, U+2B820-2CEAF, U+2CEB0-2EBEF, U+F900-FAFF, U+2F800-2FA1F, U+2E80-2EFF, U+2F00-2FDF, U+31C0-31EF, U+3000-303F, U+FF00-FFEF;
+}
+
+@font-face {
+  font-family: 'QuizChineseKaiTi';
+  src: local('KaiTi'), local('楷体'), local('Kaiti SC'), local('STKaiti'), local('DFKai-SB'), local('KaiTi_GB2312'), local('BiauKai'), cursive, serif;
+  unicode-range: U+4E00-9FFF, U+3400-4DBF, U+20000-2A6DF, U+2A700-2B73F, U+2B740-2B81F, U+2B820-2CEAF, U+2CEB0-2EBEF, U+F900-FAFF, U+2F800-2FA1F, U+2E80-2EFF, U+2F00-2FDF, U+31C0-31EF, U+3000-303F, U+FF00-FFEF;
+}
+
+/* Apply SimSun font to Chinese characters across all UI elements & question/answer components */
+body[data-chinese-font="simsun"],
+body[data-chinese-font="simsun"] input,
+body[data-chinese-font="simsun"] textarea,
+body[data-chinese-font="simsun"] button,
+body[data-chinese-font="simsun"] select,
+body[data-chinese-font="simsun"] .question-text,
+body[data-chinese-font="simsun"] .mcq-option,
+body[data-chinese-font="simsun"] .mcq-option-text,
+body[data-chinese-font="simsun"] .flashcard-card,
+body[data-chinese-font="simsun"] .flashcard-prompt-text,
+body[data-chinese-font="simsun"] .flashcard-answer-main,
+body[data-chinese-font="simsun"] .flashcard-detail-item,
+body[data-chinese-font="simsun"] .answer-input,
+body[data-chinese-font="simsun"] .correct-answer-display,
+body[data-chinese-font="simsun"] .vocab-grid-item,
+body[data-chinese-font="simsun"] .quiz-player,
+body[data-chinese-font="simsun"] .result-card {
+  font-family: 'QuizChineseSimSun', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Apply KaiTi font to Chinese characters across all UI elements & question/answer components */
+body[data-chinese-font="kaiti"],
+body[data-chinese-font="kaiti"] input,
+body[data-chinese-font="kaiti"] textarea,
+body[data-chinese-font="kaiti"] button,
+body[data-chinese-font="kaiti"] select,
+body[data-chinese-font="kaiti"] .question-text,
+body[data-chinese-font="kaiti"] .mcq-option,
+body[data-chinese-font="kaiti"] .mcq-option-text,
+body[data-chinese-font="kaiti"] .flashcard-card,
+body[data-chinese-font="kaiti"] .flashcard-prompt-text,
+body[data-chinese-font="kaiti"] .flashcard-answer-main,
+body[data-chinese-font="kaiti"] .flashcard-detail-item,
+body[data-chinese-font="kaiti"] .answer-input,
+body[data-chinese-font="kaiti"] .correct-answer-display,
+body[data-chinese-font="kaiti"] .vocab-grid-item,
+body[data-chinese-font="kaiti"] .quiz-player,
+body[data-chinese-font="kaiti"] .result-card {
+  font-family: 'QuizChineseKaiTi', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 /* --- Undo Pop-up Toast for Session Deletion --- */

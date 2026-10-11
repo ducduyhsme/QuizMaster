@@ -442,6 +442,9 @@ const App = (() => {
             <option value="simsun" ${currentChineseFont === 'simsun' ? 'selected' : ''} data-i18n="settings.fontSimSun">
               ${I18n.t('settings.fontSimSun')}
             </option>
+            <option value="kaiti" ${currentChineseFont === 'kaiti' ? 'selected' : ''} data-i18n="settings.fontKaiTi">
+              ${I18n.t('settings.fontKaiTi')}
+            </option>
           </select>
         </div>
       </div>
