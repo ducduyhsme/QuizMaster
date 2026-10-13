@@ -20,6 +20,9 @@ const PlayerState = (() => {
   let isGridCollapsedOnMobile = true;
   let vocabInputMode = localStorage.getItem('quizmaster-vocab-input-mode') || 'input';
   let flashcardFlipped = false;
+  let currentOptions = [];
+  let currentPromptText = '';
+  let currentPromptLang = 'en';
   let saveProgressTimer = null;
   const deletedQtypesSet = new Set();
 
@@ -31,6 +34,9 @@ const PlayerState = (() => {
     usedAnswers = {};
     selectedQuestionType = 'all';
     flashcardFlipped = false;
+    currentOptions = [];
+    currentPromptText = '';
+    currentPromptLang = 'en';
     deletedQtypesSet.clear();
   }
 
@@ -629,6 +635,12 @@ const PlayerState = (() => {
     },
     get flashcardFlipped() { return flashcardFlipped; },
     set flashcardFlipped(v) { flashcardFlipped = !!v; },
+    get currentOptions() { return currentOptions; },
+    set currentOptions(v) { currentOptions = v || []; },
+    get currentPromptText() { return currentPromptText; },
+    set currentPromptText(v) { currentPromptText = v || ''; },
+    get currentPromptLang() { return currentPromptLang; },
+    set currentPromptLang(v) { currentPromptLang = v || 'en'; },
     
     clearInMemoryState,
     saveProgress,

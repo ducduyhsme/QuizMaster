@@ -26,6 +26,21 @@ const QuizPlayer = (() => {
     PlayerAudio.playTTS(text, langCode);
   }
 
+  function playCurrentPromptTTS() {
+    if (PlayerState.currentPromptText) {
+      playTTS(PlayerState.currentPromptText, PlayerState.currentPromptLang || 'en');
+    }
+  }
+
+  function playCurrentWordTTS() {
+    const q = PlayerState.questionsQueue[PlayerState.currentIndex];
+    const word = q ? (q._word || q.question_text || '') : '';
+    const lang = (PlayerState.currentQuiz && PlayerState.currentQuiz.vocab_lang) || 'en';
+    if (word) {
+      playTTS(word, lang);
+    }
+  }
+
   // Keyboard shortcut listener
   document.addEventListener('keydown', (e) => {
     const isInput = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
@@ -634,6 +649,10 @@ const QuizPlayer = (() => {
       langToSpeak = isMeaningPrompt ? PlayerState.currentQuiz.meaning_lang : PlayerState.currentQuiz.vocab_lang;
     }
 
+    PlayerState.currentOptions = options;
+    PlayerState.currentPromptText = displayQuestionText;
+    PlayerState.currentPromptLang = langToSpeak;
+
     let mediaHTML = '';
     if (q.image_path || q.audio_path) {
       mediaHTML = '<div class="question-media">';
@@ -657,7 +676,7 @@ const QuizPlayer = (() => {
     if (isListen) {
       questionTextHTML = `
         <div style="text-align: center; margin-bottom: 24px;">
-          <button class="btn btn-primary btn-lg" onclick="QuizPlayer.playTTS('${Components.escapeHtml(displayQuestionText).replace(/'/g, "\\'")}', '${langToSpeak}')">
+          <button class="btn btn-primary btn-lg" onclick="QuizPlayer.playCurrentPromptTTS()">
             🔊 ${I18n.t('mcq.listenAgain')}
           </button>
         </div>
@@ -666,7 +685,7 @@ const QuizPlayer = (() => {
     } else {
       let ttsBtn = '';
       if (PlayerState.currentQuiz && PlayerState.currentQuiz.quiz_type === 'vocabulary' && !isMeaningOrIpaPrompt) {
-        ttsBtn = `<button class="tts-btn" onclick="QuizPlayer.playTTS('${Components.escapeHtml(displayQuestionText).replace(/'/g, "\\'")}', '${langToSpeak}')">🔊</button>`;
+        ttsBtn = `<button class="tts-btn" onclick="QuizPlayer.playCurrentPromptTTS()">🔊</button>`;
       }
       questionTextHTML = `<div class="question-text">${Components.escapeHtml(displayQuestionText)} ${ttsBtn}</div>`;
     }
@@ -705,7 +724,7 @@ const QuizPlayer = (() => {
       answerInputHTML = `
         <div class="mcq-options" id="mcq-options-container">
           ${options.map((opt, idx) => `
-            <button class="mcq-option" data-answer="${Components.escapeHtml(opt)}" data-option-index="${idx}" onclick="QuizPlayer.submitMcqAnswer(this, '${Components.escapeHtml(opt).replace(/'/g, "\\'")}')">
+            <button class="mcq-option" data-answer="${Components.escapeHtml(opt)}" data-option-index="${idx}" onclick="QuizPlayer.submitMcqAnswer(this, ${idx})">
               <span class="mcq-key-badge">${idx + 1}</span>
               <span class="mcq-option-text">${Components.escapeHtml(opt)}</span>
             </button>
@@ -737,7 +756,7 @@ const QuizPlayer = (() => {
               <div class="flashcard-prompt-area">
                 ${isListen ? `
                   <div style="text-align: center; margin: 16px 0;">
-                    <button type="button" class="btn btn-primary btn-lg" onclick="event.stopPropagation(); QuizPlayer.playTTS('${Components.escapeHtml(displayQuestionText).replace(/'/g, "\\'")}', '${langToSpeak}')">
+                    <button type="button" class="btn btn-primary btn-lg" onclick="event.stopPropagation(); QuizPlayer.playCurrentPromptTTS()">
                       🔊 ${I18n.t('mcq.listenAgain')}
                     </button>
                   </div>
@@ -745,7 +764,7 @@ const QuizPlayer = (() => {
                   <div class="flashcard-prompt-text">
                     ${Components.escapeHtml(displayQuestionText)}
                     ${(!isMeaningOrIpaPrompt) ? `
-                      <button type="button" class="tts-btn" onclick="event.stopPropagation(); QuizPlayer.playTTS('${Components.escapeHtml(displayQuestionText).replace(/'/g, "\\'")}', '${langToSpeak}')">🔊</button>
+                      <button type="button" class="tts-btn" onclick="event.stopPropagation(); QuizPlayer.playCurrentPromptTTS()">🔊</button>
                     ` : ''}
                   </div>
                 `}
@@ -766,7 +785,7 @@ const QuizPlayer = (() => {
                     <div class="flashcard-detail-item">
                       <span class="detail-label">Từ vựng:</span>
                       <span class="detail-val bold">${Components.escapeHtml(q._word)}</span>
-                      <button type="button" class="tts-btn" onclick="event.stopPropagation(); QuizPlayer.playTTS('${Components.escapeHtml(q._word).replace(/'/g, "\\'")}', '${PlayerState.currentQuiz.vocab_lang}')">🔊</button>
+                      <button type="button" class="tts-btn" onclick="event.stopPropagation(); QuizPlayer.playCurrentWordTTS()">🔊</button>
                     </div>
                   ` : ''}
                   ${(q._ipa || q.ipa) ? `
@@ -1560,11 +1579,30 @@ const QuizPlayer = (() => {
     }
   }
 
-  function submitMcqAnswer(btnEl, userAnswer) {
+  function submitMcqAnswer(btnEl, optionIndexOrAnswer) {
     if (PlayerState.answered) return;
+    const realBtn = btnEl ? (btnEl.closest ? btnEl.closest('.mcq-option') : btnEl) : null;
     document.querySelectorAll('.mcq-option').forEach(el => el.classList.remove('selected'));
-    btnEl.classList.add('selected');
-    submitAnswer(userAnswer, btnEl);
+    if (realBtn) realBtn.classList.add('selected');
+
+    let userAnswer = optionIndexOrAnswer;
+    if (typeof optionIndexOrAnswer === 'number') {
+      const options = PlayerState.currentOptions || [];
+      if (options[optionIndexOrAnswer] !== undefined) {
+        userAnswer = options[optionIndexOrAnswer];
+      }
+    }
+
+    if ((userAnswer === undefined || userAnswer === null || typeof userAnswer === 'number') && realBtn) {
+      const optIdx = realBtn.getAttribute('data-option-index');
+      if (optIdx !== null && PlayerState.currentOptions && PlayerState.currentOptions[Number(optIdx)] !== undefined) {
+        userAnswer = PlayerState.currentOptions[Number(optIdx)];
+      } else {
+        userAnswer = realBtn.getAttribute('data-answer') || (realBtn.querySelector('.mcq-option-text') ? realBtn.querySelector('.mcq-option-text').textContent.trim() : realBtn.textContent.trim());
+      }
+    }
+
+    submitAnswer(userAnswer, realBtn);
   }
 
   function submitAnswer(overrideAnswer = null, btnEl = null) {
@@ -1734,7 +1772,13 @@ const QuizPlayer = (() => {
       if (isMcq) {
         document.querySelectorAll('.mcq-option').forEach(el => {
           el.disabled = true;
-          const optAnswer = el.getAttribute('data-answer') || (el.querySelector('.mcq-option-text') ? el.querySelector('.mcq-option-text').textContent.trim() : el.textContent.trim());
+          const optIdx = el.getAttribute('data-option-index');
+          let optAnswer = '';
+          if (optIdx !== null && PlayerState.currentOptions && PlayerState.currentOptions[Number(optIdx)] !== undefined) {
+            optAnswer = PlayerState.currentOptions[Number(optIdx)];
+          } else {
+            optAnswer = el.getAttribute('data-answer') || (el.querySelector('.mcq-option-text') ? el.querySelector('.mcq-option-text').textContent.trim() : el.textContent.trim());
+          }
           if (PlayerState.checkAnswer(optAnswer, q.correct_answer)) {
             el.classList.add('correct');
           }
@@ -1838,7 +1882,13 @@ const QuizPlayer = (() => {
     if (isMcq) {
       document.querySelectorAll('.mcq-option').forEach(el => {
         el.disabled = true;
-        const optAnswer = el.getAttribute('data-answer') || (el.querySelector('.mcq-option-text') ? el.querySelector('.mcq-option-text').textContent.trim() : el.textContent.trim());
+        const optIdx = el.getAttribute('data-option-index');
+        let optAnswer = '';
+        if (optIdx !== null && PlayerState.currentOptions && PlayerState.currentOptions[Number(optIdx)] !== undefined) {
+          optAnswer = PlayerState.currentOptions[Number(optIdx)];
+        } else {
+          optAnswer = el.getAttribute('data-answer') || (el.querySelector('.mcq-option-text') ? el.querySelector('.mcq-option-text').textContent.trim() : el.textContent.trim());
+        }
         if (PlayerState.checkAnswer(optAnswer, q.correct_answer)) {
           el.classList.add('correct');
         }
@@ -2085,6 +2135,8 @@ const QuizPlayer = (() => {
     submitMcqAnswer,
     handleDontRemember,
     playTTS,
+    playCurrentPromptTTS,
+    playCurrentWordTTS,
     filterResults,
     filterByQuestionType,
     openQuestionTypeModal,
