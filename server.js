@@ -243,6 +243,9 @@ app.get('*', (req, res) => {
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {
+  if (res.headersSent) {
+    return next(err);
+  }
   if (err instanceof multer.MulterError) {
     return res.status(400).json({ error: `Upload error: ${err.message}` });
   }

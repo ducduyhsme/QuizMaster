@@ -7,4 +7,6 @@ public\uploads\excel\*.xlsx
 /certs
 *.exe
 data/temp_excel/
+*.lnk
 
+Start-QuizMaster.bat
